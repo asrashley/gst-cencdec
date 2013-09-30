@@ -9,7 +9,7 @@ cd "$srcdir"
 
 DIE=0
 package=gst-cenc
-srcfile=src/gstcenc.c
+srcfile=src/gstcencelements.c
 
 # Make sure we have common
 if test ! -f common/gst-autogen.sh;
@@ -34,18 +34,19 @@ autogen_options $@
 
 echo -n "+ check for build tools"
 if test ! -z "$NOCHECK"; then echo ": skipped version checks"; else  echo; fi
-version_check "autoconf" "$AUTOCONF autoconf autoconf-2.54 autoconf-2.53 autoconf-2.52" \
-              "ftp://ftp.gnu.org/pub/gnu/autoconf/" 2 52 || DIE=1
-version_check "automake" "$AUTOMAKE automake automake-1.9 automake19 automake-1.7 automake17 automake-1.6" \
-              "ftp://ftp.gnu.org/pub/gnu/automake/" 1 6 || DIE=1
+version_check "autoconf" "$AUTOCONF autoconf autoconf270 autoconf269 autoconf268 " \
+              "ftp://ftp.gnu.org/pub/gnu/autoconf/" 2 68 || DIE=1
+version_check "automake" "$AUTOMAKE automake automake-1.11" \
+              "ftp://ftp.gnu.org/pub/gnu/automake/" 1 11 || DIE=1
+version_check "autopoint" "autopoint" \
+              "ftp://ftp.gnu.org/pub/gnu/gettext/" 0 17 || DIE=1
 version_check "libtoolize" "$LIBTOOLIZE libtoolize glibtoolize" \
-              "ftp://ftp.gnu.org/pub/gnu/libtool/" 1 5 0 || DIE=1
+              "ftp://ftp.gnu.org/pub/gnu/libtool/" 2 2 6 || DIE=1
 version_check "pkg-config" "" \
               "http://www.freedesktop.org/software/pkgconfig" 0 8 0 || DIE=1
 
 die_check $DIE
 
-autoconf_2_52d_check || DIE=1
 aclocal_check || DIE=1
 autoheader_check || DIE=1
 

@@ -1,0 +1,30 @@
+This package provides an example implementation of a DASH Common
+Encryption (ISO/IEC23001-7 Information technology — MPEG systems
+technologies — Part 7: Common encryption in ISO base media file
+format files) for gstreamer.
+
+It takes video (of type "video/x-cenc ") or audio (of type "audio/x-cenc")
+from qtdemux and performs the AES-CTR decryption and outputs the decrypted
+content on a source pad.
+
+Requirements
+------------
+gstreamer 1.2
+Openssl >=1.0.0h
+DASH CENC patch for qtdemux [https://bugzilla.gnome.org/attachment.cgi?id=256792]
+
+Usage
+-----
+The decryptor does not implement a real DRM system. If you specify a key as
+a property of cencdec, it will use that key. Otherwise it will assume that
+the key is the same as the key ID.
+
+	gst-launch-1.0 souphttpsrc location="$URL" ! \
+		dashdemux name=dash ! \
+		video/quicktime ! \
+		qtdemux ! \
+		cencdec key="0123456789ABCDEF0123456789ABCDEF" ! \
+		h264parse ! video/x-h264, stream-format=avc ! \
+		avdec_h264 direct-rendering=false ! \
+		autovideoconvert message-forward=true ! \
+		ximagesink

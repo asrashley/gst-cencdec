@@ -85,7 +85,7 @@ AG_GST_LIBTOOL_PREPARE
 GST_REQ=1.2.0
 GSTPB_REQ=1.2.0
 
-PKG_CHECK_MODULES([OPENSSL], [ openssl >= 1.0.0k ], [ HAVE_OPENSSL="yes" ], [ HAVE_OPENSSL="no" ])
+PKG_CHECK_MODULES([OPENSSL], [ openssl >= 1.0.0g ], [ HAVE_OPENSSL="yes" ], [ HAVE_OPENSSL="no" ])
 
 dnl checks for gstreamer
 dnl uninstalled is selected preferentially -- see pkg-config(1)

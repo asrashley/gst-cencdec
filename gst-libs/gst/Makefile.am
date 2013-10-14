@@ -13,12 +13,14 @@ libgstaesctr_@GST_API_VERSION@include_HEADERS = \
 
 libgstaesctr_@GST_API_VERSION@_la_CFLAGS = \
 	$(GST_PLUGINS_BASE_CFLAGS) \
+	$(OPENSSL_CFLAGS) \
 	-DGST_USE_UNSTABLE_API \
 	$(GST_CFLAGS)
 
 libgstaesctr_@GST_API_VERSION@_la_LIBADD = \
 	$(GST_BASE_LIBS) \
-	$(GST_LIBS)
+	$(GST_LIBS) \
+	$(OPENSSL_LIBS)
 
 libgstaesctr_@GST_API_VERSION@_la_LDFLAGS = \
 	$(GST_LIB_LDFLAGS) \

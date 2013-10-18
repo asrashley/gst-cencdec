@@ -1,8 +1,21 @@
 plugin_LTLIBRARIES = libgstcenccrypto.la
 
+# Directory where the gstreamer plugins have been compiled
 GST_PLUGINS_GOOD_BASEDIR = $(firstword $(subst :, ,$(GST_PLUGINS_GOOD_DIR)))/..
-GST_PLUGINS_GOOD_GST_LIBS = $(GST_PLUGINS_GOOD_BASEDIR)/gst-libs
-#GST_ISOMP4_DIR = $(wildcard $(foreach DIR, $(subst :, ,$(GST_PLUGINS_GOOD_DIR)), $(DIR)/isomp4/.libs ))
+GST_PLUGINS_GOOD_BUILD_DIR=$(GST_PLUGINS_GOOD_BASEDIR)
+
+if ZINCBUILD
+GST_PLUGINS_GOOD_BASEDIR = $(PLUGINDIR)/..
+GST_BUILD_DIR = $(ZINC_BUILD_ROOT)/$(ZINC_BUILD_TYPE)-$(ZINC_HOST_CFG)/Zinc/Zinc.3rdPartyStack/build/$(ZINC_HOST_CFG)
+GST_PLUGINS_GOOD_BUILD_DIR = $(GST_BUILD_DIR)/gst_plugins_good
+endif
+
+GST_PLUGINS_GOOD_GST_LIBS = $(GST_PLUGINS_GOOD_BUILD_DIR)/gst-libs
+GST_PLUGINS_GOOD_GST_INCLUDE = -I$(GST_PLUGINS_GOOD_GST_LIBS) 
+
+if ZINCBUILD
+GST_PLUGINS_GOOD_GST_INCLUDE = -I$(PLUGINDIR)/..
+endif
 
 # sources used to compile this plugin
 libgstcenccrypto_la_SOURCES = \
@@ -16,11 +29,12 @@ libgstcenccrypto_la_CFLAGS = \
   $(GST_CFLAGS) \
   $(GST_BASE_CFLAGS) \
   $(GST_PLUGINS_GOOD_CFLAGS) \
-  -I$(GST_PLUGINS_GOOD_GST_LIBS) \
+  $(GST_PLUGINS_GOOD_GST_INCLUDE) \
   $(CPU_TUNE_CFLAGS)
 
 libgstcenccrypto_la_LDFLAGS = \
   $(GST_PLUGIN_LDFLAGS) \
+  -Wl,-rpath=$(GST_PLUGINS_DIR)/.. \
   -no-undefined
 
 libgstcenccrypto_la_LIBADD = \

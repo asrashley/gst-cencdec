@@ -27,7 +27,7 @@
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  if (!gst_element_register (plugin, "cencdec", GST_RANK_NONE,
+  if (!gst_element_register (plugin, "cencdec", GST_RANK_PRIMARY,
           gst_cenc_decrypt_get_type ()))
     return FALSE;
 

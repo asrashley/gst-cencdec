@@ -33,7 +33,7 @@ typedef struct _GstCencDecrypt GstCencDecrypt;
 typedef struct _GstCencDecryptClass GstCencDecryptClass;
 
 
-GType gst_CENC_DECRYPT_get_type (void);
+GType gst_cenc_decrypt_get_type (void);
 
 G_END_DECLS
 #endif

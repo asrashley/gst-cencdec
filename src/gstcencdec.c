@@ -34,7 +34,7 @@
 #include <gst/gst.h>
 #include <gst/gstelement.h>
 #include <gst/base/gstbasetransform.h>
-#include <gst/isomp4/gstcenc.h>
+#include <gst/cenc/cenc.h>
 #include <gst/gstaesctr.h>
 
 #include "gstcencdec.h"
@@ -95,7 +95,7 @@ static GstStaticPadTemplate gst_cenc_decrypt_sink_template =
 GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("video/x-cenc; audio/x-cenc")
+    GST_STATIC_CAPS ("application/x-cenc, original-media-type=(string)video/x-h264; application/x-cenc, original-media-type=(string)audio/mpeg")
     );
 
 static GstStaticPadTemplate gst_cenc_decrypt_src_template =
@@ -125,7 +125,8 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
       gst_static_pad_template_get (&gst_cenc_decrypt_src_template));
 
   gst_element_class_set_static_metadata (element_class,
-      "Decrypt MPEG-DASH encrypted content", "Codec/Parser/Converter",
+      "Decrypt MPEG-DASH encrypted content",
+      "Decoder/Video/Audio",
       "Decrypts media that has been encrypted using ISO MPEG-DASH common "
       "encryption.",
       "Alex Ashley <alex.ashley@youview.com>");
@@ -142,7 +143,6 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
   base_transform_class->transform_ip =
       GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_ip);
   base_transform_class->transform_caps = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_caps);
-  base_transform_class->fixate_caps = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_fixate_caps);
   //base_transform_class->filter_meta = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_filter_meta);
 
   g_object_class_install_property( gobject_class, PROP_KEY,
@@ -288,76 +288,43 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 		GstPadDirection direction,
 		GstCaps * caps, GstCaps * filter)
 {
-  static const char *vid_mime_type="video/x-cenc";
-  static const char *aud_mime_type="audio/x-cenc";
-  GstCencDecrypt* self = GST_CENC_DECRYPT(base);
   GstCaps *res=NULL;
   gint i;
-  GstStructure *structure;
 
-  GST_DEBUG_OBJECT (base, "%s caps: %" GST_PTR_FORMAT, 
-		    (direction == GST_PAD_SRC)?"Src":"Sink",
-		    caps);
+  g_return_val_if_fail (direction != GST_PAD_UNKNOWN, NULL);
+  res = gst_caps_new_empty ();
 
-  res = gst_caps_new_empty();
-  for(i=0; i<gst_caps_get_size(caps); ++i){
-    structure = gst_caps_get_structure( caps, i);
-    g_assert(structure!=NULL);
+  GST_DEBUG_OBJECT (base, "direction: %s   caps: %s   filter: %s",
+      (direction == GST_PAD_SRC)?"Src":"Sink", gst_caps_to_string (caps),
+      gst_caps_to_string (filter));
 
-    if (direction == GST_PAD_SRC) {
-      const char *src_mime_type;
-      const char *sink_mime_type;
-      GstStructure *sink_structure;
-      GstCaps *src_cap;
+  for (i = 0; i < gst_caps_get_size (caps); ++i) {
+    GstStructure *in = gst_caps_get_structure (caps, i);
+    GstStructure *out = NULL;
 
-      src_mime_type = gst_structure_get_name(structure);
-      if(src_mime_type && strncasecmp("video/",src_mime_type,6)==0){
-	sink_mime_type = vid_mime_type;
-      }
-      else{
-	sink_mime_type = aud_mime_type;
-      }
-      src_cap = gst_caps_new_full(gst_structure_copy(structure),NULL);
+    if (direction == GST_PAD_SINK) {
+      if (!gst_structure_has_field (in, "original-media-type"))
+        continue;
 
-      sink_structure = gst_structure_new_empty(sink_mime_type);
+      out = gst_structure_copy (in);
 
-      /* Can't use original-caps, because that causes caps_can_intersect
-	 to fail to find a src->sink match.
-	sink_structure = gst_structure_new(sink_mime_type,
-					 "original-caps", 
-					 GST_TYPE_CAPS, 
-					 src_cap,
-					 NULL); */
-      gst_caps_append_structure(res,sink_structure);
+      gst_structure_set_name (out,
+          gst_structure_get_string (out, "original-media-type"));
+
+      gst_structure_remove_fields (out,
+          "protection-system-id", "protection-system-data",
+          "original-media-type", NULL);
+    } else {      /* GST_PAD_SRC */
+      out = gst_structure_copy (in);
+
+      gst_structure_set (out, "original-media-type", G_TYPE_STRING,
+          gst_structure_get_name (in), NULL);
+
+      gst_structure_set_name (out, "application/x-cenc");
     }
-    else{ /* direction==SINK */
-      GstCaps *src_cap=NULL;
-      if(gst_structure_get(structure,"original-caps",GST_TYPE_CAPS,&src_cap,
-			   NULL)){
-	src_cap = gst_caps_copy(src_cap);
-      }
-      else{
-	if( gst_structure_has_name (structure, "video/x-cenc") ){
-	  src_cap = gst_caps_new_simple (
-					 "video/x-h264",
-					 "alignment", G_TYPE_STRING, "au",
-					 NULL);
-	}
-	else{
-	  src_cap = gst_caps_new_simple (
-					 "audio/mpeg",
-					 "mpegversion", G_TYPE_INT, 4,
-					 NULL);
-	}
-      }
-      if(src_cap){
-	gst_caps_append(res,src_cap);
-	//gst_caps_unref(src_cap);
-      }
-    }
+
+    gst_caps_append_structure (res, out);
   }
-
-  GST_DEBUG_OBJECT (base, "transformed caps %" GST_PTR_FORMAT, res);
 
   if (filter) {
     GstCaps *intersection;
@@ -367,69 +334,10 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
           gst_caps_intersect_full (filter, res, GST_CAPS_INTERSECT_FIRST);
     gst_caps_unref (res);
     res = intersection;
-    GST_DEBUG_OBJECT (base, "Intersection %" GST_PTR_FORMAT, res);
   }
 
+  GST_DEBUG_OBJECT (base, "returning %s", gst_caps_to_string (res));
   return res;
-}
-
-static gboolean
-gst_cenc_decrypt_search_mimetype(GQuark field_id,
-				 const GValue *value,
-				 gpointer user_data)
-{
-  const gchar *field_name = g_quark_to_string(field_id);
-  GString *dest = (GString*)user_data;
-
-  GST_DEBUG ("field_name = %s",field_name);
-  if(field_name && strncasecmp("video/",field_name,6)==0){
-    g_string_append(dest,"video/x-cenc");
-  }
-  else if(field_name && strncasecmp("audio/",field_name,6)==0){
-    g_string_append(dest,"audio/x-cenc");
-  }
-  return TRUE;
-}
-
-static GstCaps* gst_cenc_decrypt_fixate_caps (GstBaseTransform *base,
-					      GstPadDirection direction, 
-					      GstCaps *caps,
-					      GstCaps *other)
-{
-  GstCencDecrypt* self = GST_CENC_DECRYPT(base);
-  GstStructure* structure = gst_caps_get_structure( caps, 0 );
-  guint i;
-  GstCaps *origCaps=NULL;
-  GstCaps *othercaps;
-
-  GST_DEBUG_OBJECT (self, "trying to fixate othercaps %" GST_PTR_FORMAT
-		    " based on caps %" GST_PTR_FORMAT, other, caps);
-
-  othercaps = gst_caps_make_writable (other);
-
-    /*if(self->content_type==CTAudioElementaryStream){ */
-
-  if (direction == GST_PAD_SRC) {
-    GString *mime_type = g_string_new("");
-    gst_structure_foreach(structure,gst_cenc_decrypt_search_mimetype,&mime_type);
-    othercaps = gst_caps_new_simple (mime_type->str,
-				     /*"protection-system-id", G_TYPE_STRING,
-				     qtdemux->cenc_system_id,
-				     "protection-system-data", GST_TYPE_BUFFER,
-				     qtdemux->cenc_system_data,*/
-				     "original-caps", GST_TYPE_CAPS, caps, NULL);
-
-    g_string_free(mime_type,TRUE);
-  }
-  else{
-    if(gst_structure_get(structure,"original-caps",GST_TYPE_CAPS,&origCaps,NULL)){
-      gst_caps_replace(&othercaps,origCaps);
-      gst_caps_unref(origCaps);
-    }
-  }
-  //othercaps = gst_caps_fixate(othercaps);
-  GST_DEBUG_OBJECT (self, "fixated caps %" GST_PTR_FORMAT, othercaps);
-  return othercaps;
 }
 
 static GstBuffer *
@@ -487,18 +395,18 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
     goto release;
   }
   GST_DEBUG_OBJECT (self, "decrypt sample %d", map.size);
-  if(sample_info->properties.iv_size==0 || !sample_info->properties.is_encrypted){
+  if(sample_info->properties->iv_size==0 || !sample_info->properties->is_encrypted){
     /* sample is not encrypted */
     goto beach;
   }
-  key = gst_cenc_decrypt_lookup_key(self, sample_info->properties.key_id);
+  key = gst_cenc_decrypt_lookup_key(self,gst_cenc_sample_properties_get_key_id (sample_info->properties));
   if(!key){
     GST_ERROR_OBJECT (self, "Failed to lookup key");
-    GST_MEMDUMP_OBJECT (self, "Key ID:", g_bytes_get_data(sample_info->properties.key_id,NULL), 16);
+    GST_MEMDUMP_OBJECT (self, "Key ID:", g_bytes_get_data(gst_cenc_sample_properties_get_key_id (sample_info->properties),NULL), 16);
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
-  state = gst_aes_ctr_decrypt_new(key, sample_info->crypto_info.iv);
+  state = gst_aes_ctr_decrypt_new(key, gst_cenc_sample_crypto_info_get_iv (sample_info->crypto_info));
   if(!state){
     GST_ERROR_OBJECT (self, "Failed to init AES cipher");
     ret = GST_FLOW_NOT_SUPPORTED;
@@ -507,26 +415,32 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   gst_buffer_unref(key);
     
   while(pos<map.size){
-    CencSubsampleInfo remainder = { 0, map.size-pos };
-    CencSubsampleInfo *run;
-    if(sample_index<sample_info->crypto_info.n_subsamples){
-      run = &g_array_index(sample_info->crypto_info.subsample_info,
-			  CencSubsampleInfo,
-			  sample_index);
+    GstCencSubsampleInfo *run;
+    guint16 n_bytes_clear = 0;
+    guint32 n_bytes_encrypted = 0;
+
+    if(sample_index <
+        gst_cenc_sample_crypto_info_get_subsample_count (
+          sample_info->crypto_info)){
+      run = gst_cenc_sample_crypto_info_get_subsample_info (
+          sample_info->crypto_info, sample_index);
+      n_bytes_clear = run->n_bytes_clear;
+      n_bytes_encrypted = run->n_bytes_encrypted;
       sample_index++;
     }
     else{
-      run = &remainder;
+      n_bytes_clear = 0;
+      n_bytes_encrypted = map.size - pos;
     }
-    GST_TRACE_OBJECT (self, "%d bytes clear (todo=%d)", run->n_bytes_clear,
+    GST_TRACE_OBJECT (self, "%d bytes clear (todo=%d)", n_bytes_clear,
 		      map.size-pos);
-    pos += run->n_bytes_clear;
-    if(run->n_bytes_encrypted){
-      GST_TRACE_OBJECT (self, "%d bytes encrypted (todo=%d)", 
-			run->n_bytes_encrypted,
+    pos += n_bytes_clear;
+    if(n_bytes_encrypted){
+      GST_TRACE_OBJECT (self, "%d bytes encrypted (todo=%d)",
+			n_bytes_encrypted,
 			map.size-pos);
-      gst_aes_ctr_decrypt_ip(state, map.data+pos, run->n_bytes_encrypted);
-      pos += run->n_bytes_encrypted;
+      gst_aes_ctr_decrypt_ip(state, map.data+pos, n_bytes_encrypted);
+      pos += n_bytes_encrypted;
     }
   }
 

@@ -34,6 +34,7 @@
 #include <gst/gst.h>
 #include <gst/gstelement.h>
 #include <gst/base/gstbasetransform.h>
+#include <gst/base/gstbytereader.h>
 #include <gst/cenc/cenc.h>
 #include <gst/gstaesctr.h>
 
@@ -58,7 +59,7 @@ struct _GstCencDecrypt
 
 struct _GstCencDecryptClass
 {
-  GstBaseTransformClass base_cenc_decrypt_class;
+  GstBaseTransformClass parent_class;
 };
 
 /* prototypes */
@@ -79,10 +80,11 @@ static GstCaps* gst_cenc_decrypt_fixate_caps (GstBaseTransform *base,
                                    GstCaps *othercaps);
 
 static GstFlowReturn gst_cenc_decrypt_transform_ip (GstBaseTransform * trans, GstBuffer * buf);
-static GstBuffer *gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, const GBytes *kid);
+static GstBuffer *gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid);
 static gboolean gst_cenc_decrypt_search_mimetype(GQuark field_id,
 						 const GValue *value,
 						 gpointer user_data);
+static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event);
 
 enum
 {
@@ -95,7 +97,7 @@ static GstStaticPadTemplate gst_cenc_decrypt_sink_template =
 GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("application/x-cenc, original-media-type=(string)video/x-h264; application/x-cenc, original-media-type=(string)audio/mpeg")
+    GST_STATIC_CAPS ("application/x-cenc, original-media-type=(string)video/x-h264, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true; application/x-cenc, original-media-type=(string)audio/mpeg, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true")
     );
 
 static GstStaticPadTemplate gst_cenc_decrypt_src_template =
@@ -108,8 +110,8 @@ GST_STATIC_PAD_TEMPLATE ("src",
 
 /* class initialization */
 
+#define gst_cenc_decrypt_parent_class parent_class
 G_DEFINE_TYPE (GstCencDecrypt, gst_cenc_decrypt, GST_TYPE_BASE_TRANSFORM);
-#define parent_class gst_cenc_decrypt_parent_class
 
 static void
 gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
@@ -143,6 +145,8 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
   base_transform_class->transform_ip =
       GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_ip);
   base_transform_class->transform_caps = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_caps);
+  base_transform_class->sink_event =
+    GST_DEBUG_FUNCPTR (gst_cenc_decrypt_sink_event_handler);
   //base_transform_class->filter_meta = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_filter_meta);
 
   g_object_class_install_property( gobject_class, PROP_KEY,
@@ -294,9 +298,8 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
   g_return_val_if_fail (direction != GST_PAD_UNKNOWN, NULL);
   res = gst_caps_new_empty ();
 
-  GST_DEBUG_OBJECT (base, "direction: %s   caps: %s   filter: %s",
-      (direction == GST_PAD_SRC)?"Src":"Sink", gst_caps_to_string (caps),
-      gst_caps_to_string (filter));
+  GST_DEBUG_OBJECT (base, "direction: %s   caps: %" GST_PTR_FORMAT "   filter: %" GST_PTR_FORMAT,
+      (direction == GST_PAD_SRC)?"Src":"Sink", caps, filter);
 
   for (i = 0; i < gst_caps_get_size (caps); ++i) {
     GstStructure *in = gst_caps_get_structure (caps, i);
@@ -312,12 +315,15 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
           gst_structure_get_string (out, "original-media-type"));
 
       gst_structure_remove_fields (out,
-          "protection-system-id", "protection-system-data",
+          "protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a",
+          "protection-system-data",
           "original-media-type", NULL);
     } else {      /* GST_PAD_SRC */
       out = gst_structure_copy (in);
 
-      gst_structure_set (out, "original-media-type", G_TYPE_STRING,
+      gst_structure_set (out,
+          "protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a",
+          G_TYPE_BOOLEAN, TRUE, "original-media-type", G_TYPE_STRING,
           gst_structure_get_name (in), NULL);
 
       gst_structure_set_name (out, "application/x-cenc");
@@ -336,22 +342,58 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
     res = intersection;
   }
 
-  GST_DEBUG_OBJECT (base, "returning %s", gst_caps_to_string (res));
+  GST_DEBUG_OBJECT (base, "returning %" GST_PTR_FORMAT, res);
   return res;
 }
 
 static GstBuffer *
-gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, const GBytes *kid)
+gst_cenc_decrypt_get_key (const GBytes *key_id)
 {
-  GstBuffer *key;
+  guint8 key[] = { 0x01U, 0x23U, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+                   0x01U, 0x23U, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF };
+  return gst_buffer_new_wrapped (g_memdup (key, 16), 16);
+}
+
+static gchar *
+gst_cenc_create_uuid_string (gconstpointer uuid_bytes)
+{
+  const guint8 *uuid = (const guint8 *) uuid_bytes;
+  const gsize uuid_string_length = 37;  /* Length of UUID string */
+  gchar *uuid_string = g_malloc0 (uuid_string_length);
+
+  g_snprintf (uuid_string, uuid_string_length,
+      "%02x%02x%02x%02x-%02x%02x-%02x%02x-"
+      "%02x%02x-%02x%02x%02x%02x%02x%02x",
+      uuid[0], uuid[1], uuid[2], uuid[3],
+      uuid[4], uuid[5], uuid[6], uuid[7],
+      uuid[8], uuid[9], uuid[10], uuid[11],
+      uuid[12], uuid[13], uuid[14], uuid[15]);
+
+  return uuid_string;
+}
+
+static GstBuffer *
+gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid)
+{
+  /*GstBuffer *key;
   gsize length=0;
-  const unsigned char *kbytes;
+  const unsigned char *kbytes;*/
+  gchar *id_string;
+
+  GST_DEBUG_OBJECT (self, "Key ID length: %d", g_bytes_get_size (kid));
+  id_string = gst_cenc_create_uuid_string (g_bytes_get_data (kid, NULL));
+  GST_DEBUG_OBJECT (self, "Key ID: %s", id_string);
+  g_free (id_string);
   
   if(self->key){
     gst_buffer_ref(self->key);
     return self->key;
   }
-  kbytes = g_bytes_get_data((GBytes*)kid,&length);
+
+  self->key = gst_cenc_decrypt_get_key (kid);
+  gst_buffer_ref(self->key);
+
+  /*kbytes = g_bytes_get_data((GBytes*)kid,&length);
   g_assert(length==16);
   key = gst_buffer_new_allocate (NULL,16,NULL);
   if(key){
@@ -359,8 +401,8 @@ gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, const GBytes *kid)
   }
   else{
     GST_ERROR_OBJECT (self,"Failed to allocate buffer for key");
-  }
-  return key;
+  }*/
+  return self->key;
 }
 
 
@@ -461,4 +503,93 @@ out:
   return ret;
 }
 
+static void
+gst_cenc_decrypt_parse_pssh (GstCencDecrypt * self, GstBuffer * pssh)
+{
+  GstMapInfo info;
+  GstByteReader br;
+  guint8 version;
+  guint32 data_size;
+
+  gst_buffer_map (pssh, &info, GST_MAP_READ);
+  gst_byte_reader_init (&br, info.data, info.size);
+
+  gst_byte_reader_skip_unchecked (&br, 8);
+  version = gst_byte_reader_get_uint8_unchecked (&br);
+  GST_DEBUG_OBJECT (self, "pssh version: %u", version);
+  gst_byte_reader_skip_unchecked (&br, 19);
+
+  if (version > 0) {
+    /* Parse KeyIDs */
+    guint32 key_id_count = 0;
+    const guint8 *key_id_data = NULL;
+    const guint key_id_size = 16;
+
+    key_id_count = gst_byte_reader_get_uint32_be_unchecked (&br);
+    GST_DEBUG_OBJECT (self, "there are %u key IDs", key_id_count);
+    key_id_data = gst_byte_reader_get_data_unchecked (&br, key_id_count * 16);
+
+    while (key_id_count > 0) {
+      gchar *key_id_string = gst_cenc_create_uuid_string (key_id_data);
+      GST_DEBUG_OBJECT (self, "key_id: %s", key_id_string);
+      g_free (key_id_string);
+      key_id_data += key_id_size;
+      --key_id_count;
+    }
+  }
+
+  /* Parse Data */
+  data_size = gst_byte_reader_get_uint32_be_unchecked (&br);
+  GST_DEBUG_OBJECT (self, "pssh data size: %u", data_size);
+
+  if (data_size > 0U) {
+    gpointer data =
+        g_memdup (gst_byte_reader_get_data_unchecked (&br, data_size),
+        data_size);
+    GstBuffer *buf = gst_buffer_new_wrapped (data, data_size);
+    GST_DEBUG_OBJECT (self, "cenc protection system data size: %"
+        G_GSIZE_FORMAT, gst_buffer_get_size (buf));
+    gst_buffer_unref (buf);
+  }
+}
+
+static gboolean
+gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
+{
+  gboolean ret = TRUE;
+  const gchar *system_id;
+  GstBuffer *pssh = NULL;
+  gboolean init;
+  GstCencDecrypt *self = GST_CENC_DECRYPT (trans);
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_CUSTOM_DOWNSTREAM_STICKY:
+      GST_DEBUG_OBJECT (self, "received custom sticky event");
+      if (gst_cenc_event_is_pssh (event)) {
+        gst_cenc_event_parse_pssh (event, &system_id, &pssh, &init);
+        if (init)
+          GST_DEBUG_OBJECT (self, "event carries initial pssh data");
+        else
+          GST_DEBUG_OBJECT (self, "event does not carry initial pssh data");
+
+        GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
+        GST_DEBUG_OBJECT (self, "pssh buffer refcount: %u",
+            pssh->mini_object.refcount);
+        GST_DEBUG_OBJECT (self, "pssh event refcount: %u",
+            event->mini_object.refcount);
+        gst_cenc_decrypt_parse_pssh (self, pssh);
+        gst_event_unref (event);
+      } else {  /* Chain up */
+        ret =
+          GST_BASE_TRANSFORM_CLASS (parent_class)->sink_event (trans, event);
+      }
+      break;
+
+    default:
+      ret = GST_BASE_TRANSFORM_CLASS (parent_class)->sink_event (trans, event);
+      break;
+  }
+
+  return ret;
+}
 

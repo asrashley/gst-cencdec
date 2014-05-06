@@ -43,17 +43,10 @@
 GST_DEBUG_CATEGORY_STATIC (gst_cenc_decrypt_debug_category);
 #define GST_CAT_DEFAULT gst_cenc_decrypt_debug_category
 
-enum CencDecryptContentType
-{
-	CTVideoElementaryStream,
-	CTAudioElementaryStream
-};
 
 struct _GstCencDecrypt
 {
   GstBaseTransform parent;
-  enum CencDecryptContentType content_type;
-  int iv_size; /* 8 or 16 */
   GBytes *key;
 };
 
@@ -69,18 +62,13 @@ static void gst_cenc_decrypt_finalize (GObject * object);
 static gboolean gst_cenc_decrypt_start (GstBaseTransform * trans);
 static gboolean gst_cenc_decrypt_stop (GstBaseTransform * trans);
 static GstCaps* gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
-		GstPadDirection direction,
-		GstCaps * caps, GstCaps * filter);
-static GstCaps* gst_cenc_decrypt_fixate_caps (GstBaseTransform *base,
-                                   GstPadDirection direction, GstCaps *caps,
-                                   GstCaps *othercaps);
+    GstPadDirection direction, GstCaps * caps, GstCaps * filter);
 
-static GstFlowReturn gst_cenc_decrypt_transform_ip (GstBaseTransform * trans, GstBuffer * buf);
-static GBytes *gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid);
-static gboolean gst_cenc_decrypt_search_mimetype(GQuark field_id,
-						 const GValue *value,
-						 gpointer user_data);
-static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event);
+static GstFlowReturn gst_cenc_decrypt_transform_ip (GstBaseTransform * trans,
+    GstBuffer * buf);
+static GBytes *gst_cenc_decrypt_lookup_key (GstCencDecrypt *self, GBytes *kid);
+static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans,
+    GstEvent * event);
 
 enum
 {
@@ -130,18 +118,18 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
       "Alex Ashley <alex.ashley@youview.com>");
 
   GST_DEBUG_CATEGORY_INIT (gst_cenc_decrypt_debug_category,
-			   "cencdec", 0, "CENC decryptor");
+         "cencdec", 0, "CENC decryptor");
 
   gobject_class->dispose = gst_cenc_decrypt_dispose;
   gobject_class->finalize = gst_cenc_decrypt_finalize;
   base_transform_class->start = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_start);
   base_transform_class->stop = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_stop);
   base_transform_class->transform_ip =
-      GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_ip);
-  base_transform_class->transform_caps = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_caps);
+    GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_ip);
+  base_transform_class->transform_caps =
+    GST_DEBUG_FUNCPTR (gst_cenc_decrypt_transform_caps);
   base_transform_class->sink_event =
     GST_DEBUG_FUNCPTR (gst_cenc_decrypt_sink_event_handler);
-  //base_transform_class->filter_meta = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_filter_meta);
   base_transform_class->transform_ip_on_passthrough = FALSE;
 }
 
@@ -150,13 +138,11 @@ gst_cenc_decrypt_init (GstCencDecrypt * self)
 {
   GstBaseTransform *base = GST_BASE_TRANSFORM (self);
 
-  gst_base_transform_set_in_place(base, TRUE);
-  gst_base_transform_set_passthrough(base, FALSE);
+  gst_base_transform_set_in_place (base, TRUE);
+  gst_base_transform_set_passthrough (base, FALSE);
   gst_base_transform_set_gap_aware (GST_BASE_TRANSFORM (self), FALSE);
 
-  self->content_type = CTVideoElementaryStream;
-  self->iv_size=0;
-  self->key=NULL;
+  self->key = NULL;
 }
 
 void
@@ -164,11 +150,11 @@ gst_cenc_decrypt_dispose (GObject * object)
 {
   GstCencDecrypt *self = GST_CENC_DECRYPT (object);
 
-  if(self->key){
-    g_bytes_unref(self->key);
-    self->key=NULL;
-  }
   /* clean up as possible.  might be called multiple times */
+  if (self->key) {
+    g_bytes_unref (self->key);
+    self->key = NULL;
+  }
 
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
@@ -199,20 +185,19 @@ gst_cenc_decrypt_stop (GstBaseTransform * trans)
   return TRUE;
 }
 
-
 static GstCaps*
 gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
-		GstPadDirection direction,
-		GstCaps * caps, GstCaps * filter)
+    GstPadDirection direction, GstCaps * caps, GstCaps * filter)
 {
-  GstCaps *res=NULL;
+  GstCaps *res = NULL;
   gint i;
 
   g_return_val_if_fail (direction != GST_PAD_UNKNOWN, NULL);
   res = gst_caps_new_empty ();
 
-  GST_DEBUG_OBJECT (base, "direction: %s   caps: %" GST_PTR_FORMAT "   filter: %" GST_PTR_FORMAT,
-      (direction == GST_PAD_SRC)?"Src":"Sink", caps, filter);
+  GST_DEBUG_OBJECT (base, "direction: %s   caps: %" GST_PTR_FORMAT "   filter:"
+      " %" GST_PTR_FORMAT, (direction == GST_PAD_SRC) ? "Src" : "Sink",
+      caps, filter);
 
   for (i = 0; i < gst_caps_get_size (caps); ++i) {
     GstStructure *in = gst_caps_get_structure (caps, i);
@@ -250,7 +235,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
     GST_DEBUG_OBJECT (base, "Using filter caps %" GST_PTR_FORMAT, filter);
     intersection =
-          gst_caps_intersect_full (filter, res, GST_CAPS_INTERSECT_FIRST);
+      gst_caps_intersect_full (filter, res, GST_CAPS_INTERSECT_FIRST);
     gst_caps_unref (res);
     res = intersection;
   }
@@ -260,10 +245,10 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 }
 
 static GBytes *
-gst_cenc_decrypt_get_key (const GBytes *key_id)
+gst_cenc_decrypt_get_key (const GBytes * key_id)
 {
-  guint8 key[] = { 0x01U, 0x23U, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-                   0x01U, 0x23U, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF };
+  guint8 key[] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+                   0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF };
   return g_bytes_new (key, 16);
 }
 
@@ -286,38 +271,24 @@ gst_cenc_create_uuid_string (gconstpointer uuid_bytes)
 }
 
 static GBytes *
-gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid)
+gst_cenc_decrypt_lookup_key (GstCencDecrypt * self, GBytes * kid)
 {
-  /*GstBuffer *key;
-  gsize length=0;
-  const unsigned char *kbytes;*/
   gchar *id_string;
 
   GST_DEBUG_OBJECT (self, "Key ID length: %d", g_bytes_get_size (kid));
   id_string = gst_cenc_create_uuid_string (g_bytes_get_data (kid, NULL));
   GST_DEBUG_OBJECT (self, "Key ID: %s", id_string);
   g_free (id_string);
-  
-  if(self->key){
-    g_bytes_ref(self->key);
+
+  if (self->key) {
+    g_bytes_ref (self->key);
     return self->key;
   }
 
   self->key = gst_cenc_decrypt_get_key (kid);
-  g_bytes_ref(self->key);
-
-  /*kbytes = g_bytes_get_data((GBytes*)kid,&length);
-  g_assert(length==16);
-  key = gst_buffer_new_allocate (NULL,16,NULL);
-  if(key){
-    gst_buffer_fill (key, 0, kbytes, 16);
-  }
-  else{
-    GST_ERROR_OBJECT (self,"Failed to allocate buffer for key");
-  }*/
+  g_bytes_ref (self->key);
   return self->key;
 }
-
 
 static GstFlowReturn
 gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
@@ -325,94 +296,101 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   GstCencDecrypt *self = GST_CENC_DECRYPT (base);
   GstFlowReturn ret = GST_FLOW_OK;
   GstMapInfo map;
-  GBytes *key=NULL;
-  const GstCencMeta *sample_info=NULL;
-  int pos=0;
-  int sample_index=0;
-  AesCtrState *state=NULL;
+  GBytes *key = NULL;
+  const GstCencMeta *sample_info = NULL;
+  int pos = 0;
+  int sample_index = 0;
+  AesCtrState *state = NULL;
 
   GST_DEBUG_OBJECT (self, "decrypt in-place");
-  sample_info = gst_buffer_get_cenc_meta(buf);
-  if(!sample_info || !buf){
-    if(!sample_info){
+  sample_info = gst_buffer_get_cenc_meta (buf);
+  if (!sample_info || !buf) {
+    if (!sample_info) {
       GST_ERROR_OBJECT (self, "Failed to get sample_info metadata from buffer");
     }
-    if(!buf){
+    if (!buf) {
       GST_ERROR_OBJECT (self, "Failed to get writable buffer");
     }
     ret = GST_FLOW_NOT_SUPPORTED;
     goto out;
-  }  
-  //TODO: change to use map_range
+  }
+
   if (!gst_buffer_map (buf, &map, GST_MAP_READWRITE)) {
     GST_ERROR_OBJECT (self,"Failed to map buffer");
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
+
   GST_DEBUG_OBJECT (self, "decrypt sample %d", map.size);
-  if(sample_info->properties->iv_size==0 || !sample_info->properties->is_encrypted){
+  if (sample_info->properties->iv_size == 0
+      || !sample_info->properties->is_encrypted) {
     /* sample is not encrypted */
     goto beach;
   }
-  key = gst_cenc_decrypt_lookup_key(self,gst_cenc_sample_properties_get_key_id (sample_info->properties));
-  if(!key){
+
+  key = gst_cenc_decrypt_lookup_key (self,
+      gst_cenc_sample_properties_get_key_id (sample_info->properties));
+
+  if (!key) {
     GST_ERROR_OBJECT (self, "Failed to lookup key");
-    GST_MEMDUMP_OBJECT (self, "Key ID:", g_bytes_get_data(gst_cenc_sample_properties_get_key_id (sample_info->properties),NULL), 16);
+    GST_MEMDUMP_OBJECT (self, "Key ID:",
+        g_bytes_get_data (
+          gst_cenc_sample_properties_get_key_id (sample_info->properties),
+          NULL), 16);
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
-  state = gst_aes_ctr_decrypt_new(key, gst_cenc_sample_crypto_info_get_iv (sample_info->crypto_info));
-  if(!state){
+
+  state = gst_aes_ctr_decrypt_new (key,
+      gst_cenc_sample_crypto_info_get_iv (sample_info->crypto_info));
+
+  if (!state) {
     GST_ERROR_OBJECT (self, "Failed to init AES cipher");
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
-  g_bytes_unref(key);
-    
-  while(pos<map.size){
+  g_bytes_unref (key);
+
+  while (pos<map.size) {
     GstCencSubsampleInfo *run;
     guint16 n_bytes_clear = 0;
     guint32 n_bytes_encrypted = 0;
 
-    if(sample_index <
+    if (sample_index <
         gst_cenc_sample_crypto_info_get_subsample_count (
-          sample_info->crypto_info)){
+          sample_info->crypto_info)) {
       run = gst_cenc_sample_crypto_info_get_subsample_info (
           sample_info->crypto_info, sample_index);
       n_bytes_clear = run->n_bytes_clear;
       n_bytes_encrypted = run->n_bytes_encrypted;
       sample_index++;
     }
-    else{
+    else {
       n_bytes_clear = 0;
       n_bytes_encrypted = map.size - pos;
     }
     GST_TRACE_OBJECT (self, "%d bytes clear (todo=%d)", n_bytes_clear,
-		      map.size-pos);
+          map.size - pos);
     pos += n_bytes_clear;
-    if(n_bytes_encrypted){
+    if (n_bytes_encrypted) {
       GST_TRACE_OBJECT (self, "%d bytes encrypted (todo=%d)",
-			n_bytes_encrypted,
-			map.size-pos);
-      gst_aes_ctr_decrypt_ip(state, map.data+pos, n_bytes_encrypted);
+      n_bytes_encrypted,
+      map.size - pos);
+      gst_aes_ctr_decrypt_ip (state, map.data + pos, n_bytes_encrypted);
       pos += n_bytes_encrypted;
     }
   }
 
 beach:
-  //GST_TRACE_OBJECT (self, "Done, unmap buffer");
   gst_buffer_unmap (buf, &map);
-  if(state){
-    //GST_TRACE_OBJECT (self, "Free aes_ctr");
-    gst_aes_ctr_decrypt_unref(state);
+  if (state) {
+    gst_aes_ctr_decrypt_unref (state);
   }
 release:
-  if(sample_info){
-    //GST_TRACE_OBJECT (self, "Free GstMeta");
+  if (sample_info) {
     gst_buffer_remove_meta (buf, (GstMeta*)sample_info);
   }
 out:
-  //GST_TRACE_OBJECT (self, "transform_ip done");
   return ret;
 }
 
@@ -483,13 +461,9 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
         if (init)
           GST_DEBUG_OBJECT (self, "event carries initial pssh data");
         else
-          GST_DEBUG_OBJECT (self, "event does not carry initial pssh data");
+          GST_DEBUG_OBJECT (self, "event carries non-initial pssh data");
 
         GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
-        GST_DEBUG_OBJECT (self, "pssh buffer refcount: %u",
-            pssh->mini_object.refcount);
-        GST_DEBUG_OBJECT (self, "pssh event refcount: %u",
-            event->mini_object.refcount);
         gst_cenc_decrypt_parse_pssh (self, pssh);
         gst_event_unref (event);
       } else {  /* Chain up */

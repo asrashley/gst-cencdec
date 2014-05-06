@@ -28,7 +28,7 @@ G_BEGIN_DECLS
 
 typedef struct _AesCtrState AesCtrState;
 
-AesCtrState * gst_aes_ctr_decrypt_new(GstBuffer *key, GBytes *iv);
+AesCtrState * gst_aes_ctr_decrypt_new(GBytes *key, GBytes *iv);
 AesCtrState * gst_aes_ctr_decrypt_ref(AesCtrState *state);
 void gst_aes_ctr_decrypt_unref(AesCtrState *state);
 

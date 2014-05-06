@@ -31,7 +31,7 @@ struct _AesCtrState {
 }; 
 
 AesCtrState *
-gst_aes_ctr_decrypt_new(GstBuffer *key, GBytes *iv)
+gst_aes_ctr_decrypt_new(GBytes *key, GBytes *iv)
 {
   unsigned char *buf;
   GstMapInfo map;
@@ -41,19 +41,14 @@ gst_aes_ctr_decrypt_new(GstBuffer *key, GBytes *iv)
   g_return_val_if_fail(key!=NULL,NULL);
   g_return_val_if_fail(iv!=NULL,NULL);
 
-  if (!gst_buffer_map (key, &map, GST_MAP_READ)) {
-    GST_ERROR ("Failed to map key buffer");
-    return NULL;
-  }
   state = g_slice_new(AesCtrState);
   if(!state){
     GST_ERROR ("Failed to allocate AesCtrState");
-    gst_buffer_unmap(key,&map);
     return NULL;
   }
-  g_assert(map.size==16);
-  AES_set_encrypt_key ( map.data, 8*map.size, &state->key);
-  gst_buffer_unmap(key,&map);
+  g_assert (g_bytes_get_size (key) == 16);
+  AES_set_encrypt_key ((const unsigned char*) g_bytes_get_data (key, NULL),
+      8 * g_bytes_get_size (key), &state->key);
 
   buf = (unsigned char*)g_bytes_get_data(iv, &iv_length);
   state->num = 0; 

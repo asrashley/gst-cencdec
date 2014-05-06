@@ -54,7 +54,7 @@ struct _GstCencDecrypt
   GstBaseTransform parent;
   enum CencDecryptContentType content_type;
   int iv_size; /* 8 or 16 */
-  GstBuffer *key;
+  GBytes *key;
 };
 
 struct _GstCencDecryptClass
@@ -80,7 +80,7 @@ static GstCaps* gst_cenc_decrypt_fixate_caps (GstBaseTransform *base,
                                    GstCaps *othercaps);
 
 static GstFlowReturn gst_cenc_decrypt_transform_ip (GstBaseTransform * trans, GstBuffer * buf);
-static GstBuffer *gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid);
+static GBytes *gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid);
 static gboolean gst_cenc_decrypt_search_mimetype(GQuark field_id,
 						 const GValue *value,
 						 gpointer user_data);
@@ -252,7 +252,7 @@ gst_cenc_decrypt_dispose (GObject * object)
   GstCencDecrypt *self = GST_CENC_DECRYPT (object);
 
   if(self->key){
-    gst_buffer_unref(self->key);
+    g_bytes_unref(self->key);
     self->key=NULL;
   }
   /* clean up as possible.  might be called multiple times */
@@ -346,12 +346,12 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
   return res;
 }
 
-static GstBuffer *
+static GBytes *
 gst_cenc_decrypt_get_key (const GBytes *key_id)
 {
   guint8 key[] = { 0x01U, 0x23U, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
                    0x01U, 0x23U, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF };
-  return gst_buffer_new_wrapped (g_memdup (key, 16), 16);
+  return g_bytes_new (key, 16);
 }
 
 static gchar *
@@ -372,7 +372,7 @@ gst_cenc_create_uuid_string (gconstpointer uuid_bytes)
   return uuid_string;
 }
 
-static GstBuffer *
+static GBytes *
 gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid)
 {
   /*GstBuffer *key;
@@ -386,12 +386,12 @@ gst_cenc_decrypt_lookup_key(GstCencDecrypt *self, GBytes *kid)
   g_free (id_string);
   
   if(self->key){
-    gst_buffer_ref(self->key);
+    g_bytes_ref(self->key);
     return self->key;
   }
 
   self->key = gst_cenc_decrypt_get_key (kid);
-  gst_buffer_ref(self->key);
+  g_bytes_ref(self->key);
 
   /*kbytes = g_bytes_get_data((GBytes*)kid,&length);
   g_assert(length==16);
@@ -412,7 +412,7 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   GstCencDecrypt *self = GST_CENC_DECRYPT (base);
   GstFlowReturn ret = GST_FLOW_OK;
   GstMapInfo map;
-  GstBuffer *key=NULL;
+  GBytes *key=NULL;
   const GstCencMeta *sample_info=NULL;
   int pos=0;
   int sample_index=0;
@@ -454,7 +454,7 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
-  gst_buffer_unref(key);
+  g_bytes_unref(key);
     
   while(pos<map.size){
     GstCencSubsampleInfo *run;

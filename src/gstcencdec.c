@@ -63,10 +63,6 @@ struct _GstCencDecryptClass
 };
 
 /* prototypes */
-static void gst_cenc_decrypt_set_property (GObject * object,
-    guint property_id, const GValue * value, GParamSpec * pspec);
-static void gst_cenc_decrypt_get_property (GObject * object,
-    guint property_id, GValue * value, GParamSpec * pspec);
 static void gst_cenc_decrypt_dispose (GObject * object);
 static void gst_cenc_decrypt_finalize (GObject * object);
 
@@ -88,7 +84,7 @@ static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, G
 
 enum
 {
-  PROP_0, PROP_KEY
+  PROP_0
 };
 
 /* pad templates */
@@ -136,8 +132,6 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
   GST_DEBUG_CATEGORY_INIT (gst_cenc_decrypt_debug_category,
 			   "cencdec", 0, "CENC decryptor");
 
-  gobject_class->set_property = gst_cenc_decrypt_set_property;
-  gobject_class->get_property = gst_cenc_decrypt_get_property;
   gobject_class->dispose = gst_cenc_decrypt_dispose;
   gobject_class->finalize = gst_cenc_decrypt_finalize;
   base_transform_class->start = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_start);
@@ -148,13 +142,6 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
   base_transform_class->sink_event =
     GST_DEBUG_FUNCPTR (gst_cenc_decrypt_sink_event_handler);
   //base_transform_class->filter_meta = GST_DEBUG_FUNCPTR (gst_cenc_decrypt_filter_meta);
-
-  g_object_class_install_property( gobject_class, PROP_KEY,
-				   g_param_spec_string( "key", 
-							"KEY", 
-							"The hex key to use for decryption",
-							"",
-							G_PARAM_READWRITE) );
   base_transform_class->transform_ip_on_passthrough = FALSE;
 }
 
@@ -170,80 +157,6 @@ gst_cenc_decrypt_init (GstCencDecrypt * self)
   self->content_type = CTVideoElementaryStream;
   self->iv_size=0;
   self->key=NULL;
-}
-
-void
-gst_cenc_decrypt_set_property (GObject * object,
-			       guint property_id,
-			       const GValue * value, 
-			       GParamSpec * pspec)
-{
-  GstCencDecrypt *self = GST_CENC_DECRYPT (object);
-
-  switch (property_id) {
-  case PROP_KEY: {
-    GstBuffer *key;
-    GstMapInfo info;
-    int i, len;
-    const gchar* keyString = g_value_get_string( value );
-    char hex[3] = { '0','0',0 };
-
-    if(!keyString){
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
-      return;
-    }
-    len = strlen(keyString);
-    if(len!=32){ 
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
-      return;
-    }
-    key = gst_buffer_new_allocate (NULL,16,NULL);
-    if(key){
-      gst_buffer_map (key, &info, GST_MAP_WRITE);
-      for(i=0; i<16; ++i){
-	if (!isxdigit ((int) keyString[i * 2]) || !isxdigit ((int) keyString[i * 2 + 1])) {
-	  gst_buffer_unmap(key,&info);
-	  gst_buffer_unref (key);
-	  G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
-	  return;
-	}
-	hex[0] = keyString[i * 2 + 0];
-	hex[1] = keyString[i * 2 + 1];
-	info.data[i] = (guint8) strtoul (hex, NULL, 16);
-      }
-      gst_buffer_unmap(key,&info);
-      self->key = key;
-    }
-  }
-    break;
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
-      break;
-  }
-}
-
-void
-gst_cenc_decrypt_get_property (GObject * object, guint property_id,
-    GValue * value, GParamSpec * pspec)
-{
-  GstCencDecrypt *self = GST_CENC_DECRYPT (object);
-
-  switch (property_id) {
-  case PROP_KEY: 
-    if(self->key){
-      GString *keyString = g_string_sized_new(33);
-      GstMapInfo info;
-      int i;
-      for(i=0; i<16; ++i){
-	g_string_append_printf(keyString,"%0x2",info.data[i]);
-      }
-      g_value_take_string(value, g_string_free(keyString,FALSE));
-    }
-    break;
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
-      break;
-  }
 }
 
 void

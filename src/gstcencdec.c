@@ -20,8 +20,8 @@
 /**
  * SECTION:element-gstcencdecrypt
  *
- * Decrypts media that has been encrypted using the MPEG DASH common
- * encryption standard.
+ * Decrypts media that has been encrypted using the ISOBMFF Common Encryption
+ * standard.
  *
  */
 
@@ -30,6 +30,7 @@
 #endif
 
 #include <string.h>
+#include <stdio.h>
 
 #include <gst/gst.h>
 #include <gst/gstelement.h>
@@ -37,6 +38,7 @@
 #include <gst/base/gstbytereader.h>
 #include <gst/cenc/cenc.h>
 #include <gst/gstaesctr.h>
+#include <openssl/sha.h>
 
 #include "gstcencdec.h"
 
@@ -111,10 +113,9 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
       gst_static_pad_template_get (&gst_cenc_decrypt_src_template));
 
   gst_element_class_set_static_metadata (element_class,
-      "Decrypt MPEG-DASH encrypted content",
+      "Decrypt content encrypted using ISOBMFF Common Encryption",
       "Decoder/Video/Audio",
-      "Decrypts media that has been encrypted using ISO MPEG-DASH common "
-      "encryption.",
+      "Decrypts media that has been encrypted using ISOBMFF Common Encryption.",
       "Alex Ashley <alex.ashley@youview.com>");
 
   GST_DEBUG_CATEGORY_INIT (gst_cenc_decrypt_debug_category,
@@ -150,7 +151,6 @@ gst_cenc_decrypt_dispose (GObject * object)
 {
   GstCencDecrypt *self = GST_CENC_DECRYPT (object);
 
-  /* clean up as possible.  might be called multiple times */
   if (self->key) {
     g_bytes_unref (self->key);
     self->key = NULL;
@@ -244,12 +244,77 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
   return res;
 }
 
-static GBytes *
-gst_cenc_decrypt_get_key (const GBytes * key_id)
+static gchar *
+gst_cenc_bytes_to_string (gconstpointer bytes, guint length)
 {
-  guint8 key[] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-                   0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF };
-  return g_bytes_new (key, 16);
+  const guint8 *data = (const guint8 *) bytes;
+  gchar *string = g_malloc0 ((2 * length) + 1);
+  guint i;
+
+  for (i = 0; i < length; ++i) {
+    g_snprintf (string + (2 * i), 3, "%02x", data[i]);
+  }
+
+  return string;
+}
+
+static gchar *
+gst_cenc_create_content_id (gconstpointer key_id)
+{
+  const guint8 *id = (const guint8 *) key_id;
+  const gsize id_string_length = 48;  /* Length of Content ID string */
+  gchar *id_string = g_malloc0 (id_string_length);
+
+  g_snprintf (id_string, id_string_length,
+      "urn:marlin:kid:%02x%02x%02x%02x%02x%02x%02x%02x"
+      "%02x%02x%02x%02x%02x%02x%02x%02x",
+      id[0], id[1], id[2], id[3], id[4], id[5], id[6], id[7],
+      id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]);
+
+  return id_string;
+}
+
+static GBytes *
+gst_cenc_decrypt_get_key (GBytes *key_id)
+{
+#define KEY_LENGTH 16
+  guint8 key[KEY_LENGTH] = { 0 };
+  guint8 hash[SHA_DIGEST_LENGTH] = { 0 };
+  gchar *hash_string;
+  gchar *path;
+  size_t bytes_read = 0;
+  FILE *key_file = NULL;
+  gchar *content_id =
+    gst_cenc_create_content_id (g_bytes_get_data (key_id, NULL));
+  GST_CAT_DEBUG (GST_CAT_DEFAULT, "Content ID: %s", content_id);
+
+  /* Perform sha1 hash of content id. */
+  SHA1 ((const unsigned char *)content_id, 47, hash);
+  hash_string = gst_cenc_bytes_to_string (hash, SHA_DIGEST_LENGTH);
+  GST_CAT_DEBUG (GST_CAT_DEFAULT, "Hash: %s", hash_string);
+  g_free (content_id);
+
+  /* Read contents of file with the hash as its name. */
+  path = g_strconcat ("/tmp/", hash_string, NULL);
+  g_free (hash_string);
+  GST_CAT_DEBUG (GST_CAT_DEFAULT, "Opening file: %s", path);
+  key_file = fopen (path, "rb");
+  g_free (path);
+
+  if (!key_file) {
+    GST_CAT_ERROR (GST_CAT_DEFAULT, "Failed to open keyfile.");
+    return NULL;
+  }
+
+  bytes_read = fread (key, 1, KEY_LENGTH, key_file);
+  fclose (key_file);
+
+  if (bytes_read != KEY_LENGTH) {
+    GST_CAT_ERROR (GST_CAT_DEFAULT, "Failed to read key from file.");
+    return NULL;
+  }
+
+  return g_bytes_new (key, KEY_LENGTH);
 }
 
 static gchar *
@@ -275,17 +340,13 @@ gst_cenc_decrypt_lookup_key (GstCencDecrypt * self, GBytes * kid)
 {
   gchar *id_string;
 
-  GST_DEBUG_OBJECT (self, "Key ID length: %d", g_bytes_get_size (kid));
   id_string = gst_cenc_create_uuid_string (g_bytes_get_data (kid, NULL));
-  GST_DEBUG_OBJECT (self, "Key ID: %s", id_string);
+  GST_DEBUG_OBJECT (self, "Looking up key ID: %s", id_string);
   g_free (id_string);
 
-  if (self->key) {
-    g_bytes_ref (self->key);
-    return self->key;
-  }
+  if (!self->key)
+    self->key = gst_cenc_decrypt_get_key (kid);
 
-  self->key = gst_cenc_decrypt_get_key (kid);
   g_bytes_ref (self->key);
   return self->key;
 }
@@ -316,7 +377,7 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   }
 
   if (!gst_buffer_map (buf, &map, GST_MAP_READWRITE)) {
-    GST_ERROR_OBJECT (self,"Failed to map buffer");
+    GST_ERROR_OBJECT (self, "Failed to map buffer");
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
@@ -364,8 +425,7 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
       n_bytes_clear = run->n_bytes_clear;
       n_bytes_encrypted = run->n_bytes_encrypted;
       sample_index++;
-    }
-    else {
+    } else {
       n_bytes_clear = 0;
       n_bytes_encrypted = map.size - pos;
     }

@@ -299,12 +299,13 @@ gst_cenc_decrypt_get_key (GBytes *key_id)
   g_free (hash_string);
   GST_CAT_DEBUG (GST_CAT_DEFAULT, "Opening file: %s", path);
   key_file = fopen (path, "rb");
-  g_free (path);
 
   if (!key_file) {
-    GST_CAT_ERROR (GST_CAT_DEFAULT, "Failed to open keyfile.");
+    GST_CAT_ERROR (GST_CAT_DEFAULT, "Failed to open keyfile:%s", path);
+    g_free (path);
     return NULL;
   }
+  g_free (path);
 
   bytes_read = fread (key, 1, KEY_LENGTH, key_file);
   fclose (key_file);

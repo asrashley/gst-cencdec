@@ -38,6 +38,9 @@
 #include <gst/base/gstbytereader.h>
 #include <gst/cenc/cenc.h>
 #include <gst/gstaesctr.h>
+
+#include <glib/ghash.h>
+
 #include <openssl/sha.h>
 
 #include "gstcencdec.h"
@@ -49,7 +52,8 @@ GST_DEBUG_CATEGORY_STATIC (gst_cenc_decrypt_debug_category);
 struct _GstCencDecrypt
 {
   GstBaseTransform parent;
-  GBytes *key;
+  /* GBytes *key; */
+  GHashTable *keys; /* hash table of KID to key */
 };
 
 struct _GstCencDecryptClass
@@ -69,6 +73,7 @@ static GstCaps* gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 static GstFlowReturn gst_cenc_decrypt_transform_ip (GstBaseTransform * trans,
     GstBuffer * buf);
 static GBytes *gst_cenc_decrypt_lookup_key (GstCencDecrypt *self, GBytes *kid);
+static GBytes *gst_cenc_decrypt_get_key (GstCencDecrypt *self, GBytes *kid);
 static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans,
     GstEvent * event);
 
@@ -143,7 +148,8 @@ gst_cenc_decrypt_init (GstCencDecrypt * self)
   gst_base_transform_set_passthrough (base, FALSE);
   gst_base_transform_set_gap_aware (GST_BASE_TRANSFORM (self), FALSE);
 
-  self->key = NULL;
+/*  self->key = NULL;*/
+  self->keys = g_hash_table_new(g_direct_hash, g_direct_equal);
 }
 
 void
@@ -151,9 +157,9 @@ gst_cenc_decrypt_dispose (GObject * object)
 {
   GstCencDecrypt *self = GST_CENC_DECRYPT (object);
 
-  if (self->key) {
-    g_bytes_unref (self->key);
-    self->key = NULL;
+  if (self->keys) {
+    g_hash_table_unref(self->keys);
+    self->keys = NULL;
   }
 
   G_OBJECT_CLASS (parent_class)->dispose (object);
@@ -275,7 +281,7 @@ gst_cenc_create_content_id (gconstpointer key_id)
 }
 
 static GBytes *
-gst_cenc_decrypt_get_key (GBytes *key_id)
+gst_cenc_decrypt_get_key (GstCencDecrypt *self, GBytes *key_id)
 {
 #define KEY_LENGTH 16
   guint8 key[KEY_LENGTH] = { 0 };
@@ -286,36 +292,39 @@ gst_cenc_decrypt_get_key (GBytes *key_id)
   FILE *key_file = NULL;
   gchar *content_id =
     gst_cenc_create_content_id (g_bytes_get_data (key_id, NULL));
-  GST_CAT_DEBUG (GST_CAT_DEFAULT, "Content ID: %s", content_id);
+
+  GST_DEBUG_OBJECT (self, "Content ID: %s", content_id);
 
   /* Perform sha1 hash of content id. */
   SHA1 ((const unsigned char *)content_id, 47, hash);
   hash_string = gst_cenc_bytes_to_string (hash, SHA_DIGEST_LENGTH);
-  GST_CAT_DEBUG (GST_CAT_DEFAULT, "Hash: %s", hash_string);
+  GST_DEBUG_OBJECT (self, "Hash: %s", hash_string);
   g_free (content_id);
 
   /* Read contents of file with the hash as its name. */
-  path = g_strconcat ("/tmp/", hash_string, NULL);
+  path = g_strconcat ("/tmp/", hash_string, ".key", NULL);
   g_free (hash_string);
-  GST_CAT_DEBUG (GST_CAT_DEFAULT, "Opening file: %s", path);
+  GST_DEBUG_OBJECT (self, "Opening file: %s", path);
   key_file = fopen (path, "rb");
 
   if (!key_file) {
-    GST_CAT_ERROR (GST_CAT_DEFAULT, "Failed to open keyfile:%s", path);
-    g_free (path);
-    return NULL;
+    GST_ERROR_OBJECT (self, "Failed to open keyfile: %s", path);
+    goto error;
   }
-  g_free (path);
 
   bytes_read = fread (key, 1, KEY_LENGTH, key_file);
   fclose (key_file);
 
   if (bytes_read != KEY_LENGTH) {
-    GST_CAT_ERROR (GST_CAT_DEFAULT, "Failed to read key from file.");
-    return NULL;
+    GST_ERROR_OBJECT (self, "Failed to read key from file %s", path);
+    goto error;
   }
+  g_free (path);
 
   return g_bytes_new (key, KEY_LENGTH);
+error:
+    g_free (path);
+    return NULL;
 }
 
 static gchar *
@@ -340,16 +349,23 @@ static GBytes *
 gst_cenc_decrypt_lookup_key (GstCencDecrypt * self, GBytes * kid)
 {
   gchar *id_string;
+  GBytes *key;
 
-  id_string = gst_cenc_create_uuid_string (g_bytes_get_data (kid, NULL));
+/*  id_string = gst_cenc_create_uuid_string (g_bytes_get_data (kid, NULL));
   GST_DEBUG_OBJECT (self, "Looking up key ID: %s", id_string);
-  g_free (id_string);
+  g_free (id_string); */
 
-  if (!self->key)
-    self->key = gst_cenc_decrypt_get_key (kid);
+  key = g_hash_table_lookup(self->keys,kid);
+  if (!key){
+    key = gst_cenc_decrypt_get_key (self, kid);
+    if(!key){
+	return NULL;
+    }
+    g_hash_table_insert(self->keys,kid,key);
+  }
 
-  g_bytes_ref (self->key);
-  return self->key;
+  g_bytes_ref (key);
+  return key;
 }
 
 static GstFlowReturn

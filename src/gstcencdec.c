@@ -380,7 +380,7 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   int sample_index = 0;
   AesCtrState *state = NULL;
 
-  GST_DEBUG_OBJECT (self, "decrypt in-place");
+  GST_TRACE_OBJECT (self, "decrypt in-place");
   sample_info = gst_buffer_get_cenc_meta (buf);
   if (!sample_info || !buf) {
     if (!sample_info) {
@@ -399,7 +399,7 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
     goto release;
   }
 
-  GST_DEBUG_OBJECT (self, "decrypt sample %d", map.size);
+  GST_TRACE_OBJECT (self, "decrypt sample %d", map.size);
   if (sample_info->properties->iv_size == 0
       || !sample_info->properties->is_encrypted) {
     /* sample is not encrypted */

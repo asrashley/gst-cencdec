@@ -88,7 +88,11 @@ static GstStaticPadTemplate gst_cenc_decrypt_sink_template =
 GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("application/x-cenc, original-media-type=(string)video/x-h264, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true; application/x-cenc, original-media-type=(string)audio/mpeg, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true")
+    GST_STATIC_CAPS ("application/x-cenc, original-media-type=(string)video/x-h264, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true; "
+		     "application/x-cenc, original-media-type=(string)video/x-h264, protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4=(boolean)true; "
+		     "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true; "
+		     "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4=(boolean)true"
+		     )
     );
 
 static GstStaticPadTemplate gst_cenc_decrypt_src_template =
@@ -220,6 +224,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
       gst_structure_remove_fields (out,
           "protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a",
+          "protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4",
           "protection-system-data",
           "original-media-type", NULL);
     } else {      /* GST_PAD_SRC */
@@ -227,8 +232,18 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
       gst_structure_set (out,
           "protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a",
-          G_TYPE_BOOLEAN, TRUE, "original-media-type", G_TYPE_STRING,
-          gst_structure_get_name (in), NULL);
+          G_TYPE_BOOLEAN, TRUE, 
+	  "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
+	  NULL);
+
+      gst_structure_set_name (out, "application/x-cenc");
+      gst_caps_append_structure (res, out);
+      out = gst_structure_copy (in);
+      gst_structure_set (out,
+          "protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4",
+          G_TYPE_BOOLEAN, TRUE, 
+	  "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
+	  NULL);
 
       gst_structure_set_name (out, "application/x-cenc");
     }

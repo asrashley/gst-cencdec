@@ -42,6 +42,8 @@
 #include <glib/ghash.h>
 
 #include <openssl/sha.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 
 #include "gstcencdec.h"
 
@@ -487,7 +489,7 @@ out:
 }
 
 static void
-gst_cenc_decrypt_parse_pssh (GstCencDecrypt * self, GstBuffer * pssh)
+gst_cenc_decrypt_parse_pssh_box (GstCencDecrypt * self, GstBuffer * pssh)
 {
   GstMapInfo info;
   GstByteReader br;
@@ -534,6 +536,66 @@ gst_cenc_decrypt_parse_pssh (GstCencDecrypt * self, GstBuffer * pssh)
         G_GSIZE_FORMAT, gst_buffer_get_size (buf));
     gst_buffer_unref (buf);
   }
+  gst_buffer_unmap(pssh,&info);
+}
+
+static gboolean
+gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self, GstBuffer * pssh)
+{
+  GstMapInfo info;
+  guint32 data_size;
+  xmlDocPtr doc;
+  xmlNode *root_element = NULL;
+  gboolean ret=TRUE;
+  xmlNode *cur_node;
+
+  gst_buffer_map (pssh, &info, GST_MAP_READ);
+
+  /* this initialize the library and check potential ABI mismatches
+   * between the version it was compiled for and the actual shared
+   * library used
+   */
+  LIBXML_TEST_VERSION
+    /* parse "data" into a document (which is a libxml2 tree structure xmlDoc) */
+  doc = xmlReadMemory (info.data, info.size, "ContentProtection.xml", NULL, 0);
+  if(!doc){
+    ret=FALSE;
+    GST_ERROR_OBJECT (self, "Failed to parse XML from pssh event");
+    goto beach;
+  }
+  root_element = xmlDocGetRootElement (doc);
+
+  if (root_element->type != XML_ELEMENT_NODE
+      || xmlStrcmp (root_element->name, (xmlChar *) "ContentProtection") != 0) {
+    GST_ERROR_OBJECT (self, "Failed to find ContentProtection element");
+    ret=FALSE;
+    goto beach;
+  }
+
+  /* Parse KeyIDs */
+  for (cur_node = root_element->children; cur_node; cur_node = cur_node->next) {
+    if (cur_node->type == XML_ELEMENT_NODE && 
+	xmlStrcmp (cur_node->name, (xmlChar *) "MarlinContentIds") == 0) {
+      xmlNode *k_node;
+      for(k_node=cur_node->children; k_node; k_node=k_node->next){
+	if (cur_node->type == XML_ELEMENT_NODE && 
+	    xmlStrcmp (cur_node->name, (xmlChar *) "MarlinContentId") == 0) {
+	  xmlChar *node_content;
+	  node_content = xmlNodeGetContent (k_node);
+	  if (node_content) {
+	    GST_DEBUG_OBJECT (self, "key_id: %s", node_content);
+	    xmlFree (node_content);
+	  }
+	}
+      }
+    }
+  }
+
+ beach:
+  gst_buffer_unmap(pssh,&info);
+  if(doc)
+    xmlFreeDoc (doc);
+  return(ret);
 }
 
 static gboolean
@@ -542,21 +604,25 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
   gboolean ret = TRUE;
   const gchar *system_id;
   GstBuffer *pssh = NULL;
-  gboolean init;
+  GstPsshLocation loc;
   GstCencDecrypt *self = GST_CENC_DECRYPT (trans);
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM_STICKY:
       GST_DEBUG_OBJECT (self, "received custom sticky event");
       if (gst_cenc_event_is_pssh (event)) {
-        gst_cenc_event_parse_pssh (event, &system_id, &pssh, &init);
-        if (init)
-          GST_DEBUG_OBJECT (self, "event carries initial pssh data");
-        else
-          GST_DEBUG_OBJECT (self, "event carries non-initial pssh data");
-
+        gst_cenc_event_parse_pssh (event, &system_id, &pssh, &loc);
         GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
-        gst_cenc_decrypt_parse_pssh (self, pssh);
+	switch(loc){
+	case GST_PSSH_INIT_SEGMENT:
+          GST_DEBUG_OBJECT (self, "event carries initial pssh data");
+	  gst_cenc_decrypt_parse_pssh_box (self, pssh);
+	  break;
+	case GST_PSSH_FRAGMENT:
+          GST_DEBUG_OBJECT (self, "event carries non-initial pssh data");
+	  gst_cenc_decrypt_parse_pssh_box (self, pssh);
+	  break;
+	}
         gst_event_unref (event);
       } else {  /* Chain up */
         ret =

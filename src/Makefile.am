@@ -26,6 +26,7 @@ libgstcenccrypto_la_CFLAGS = \
  -I$(top_srcdir)/common \
  -I$(top_srcdir)/gst-libs \
   $(OPENSSL_CFLAGS) \
+  $(LIBXML2_CFLAGS) \
   $(GST_CFLAGS) \
   $(GST_BASE_CFLAGS) \
   $(GST_PLUGINS_BASE_CFLAGS) \
@@ -43,6 +44,7 @@ libgstcenccrypto_la_LIBADD = \
   -lgstcenc-@GST_API_VERSION@ \
   $(GST_BASE_LIBS) \
   $(GST_LIBS) \
+  $(LIBXML2_LIBS) \
   $(OPENSSL_LIBS)
 
 libgstcenccrypto_la_LIBTOOLFLAGS = $(GST_PLUGIN_LIBTOOLFLAGS)

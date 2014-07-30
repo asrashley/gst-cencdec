@@ -87,6 +87,11 @@ GSTPB_REQ=1.2.0
 
 PKG_CHECK_MODULES([OPENSSL], [ openssl >= 1.0.0g ], [ HAVE_OPENSSL="yes" ], [ HAVE_OPENSSL="no" ])
 
+PKG_CHECK_MODULES(LIBXML2, libxml-2.0 >= 2.4, [HAVE_LIBXML2="yes"], [HAVE_LIBXML2="no"])
+AM_CONDITIONAL(HAVE_LIBXML2, test "x$HAVE_LIBXML2" = "xyes")
+AC_SUBST(LIBXML2_CFLAGS)
+AC_SUBST(LIBXML2_LIBS)
+
 dnl checks for gstreamer
 dnl uninstalled is selected preferentially -- see pkg-config(1)
 AG_GST_CHECK_GST($GST_API_VERSION, [$GST_REQ], yes)

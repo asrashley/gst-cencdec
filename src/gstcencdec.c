@@ -540,7 +540,7 @@ gst_cenc_decrypt_parse_pssh_box (GstCencDecrypt * self, GstBuffer * pssh)
 }
 
 static gboolean
-gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self, GstBuffer * pssh)
+gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self, GstBuffer * pssi)
 {
   GstMapInfo info;
   guint32 data_size;
@@ -549,7 +549,7 @@ gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self, GstBuf
   gboolean ret=TRUE;
   xmlNode *cur_node;
 
-  gst_buffer_map (pssh, &info, GST_MAP_READ);
+  gst_buffer_map (pssi, &info, GST_MAP_READ);
 
   /* this initialize the library and check potential ABI mismatches
    * between the version it was compiled for and the actual shared
@@ -560,7 +560,7 @@ gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self, GstBuf
   doc = xmlReadMemory (info.data, info.size, "ContentProtection.xml", NULL, 0);
   if(!doc){
     ret=FALSE;
-    GST_ERROR_OBJECT (self, "Failed to parse XML from pssh event");
+    GST_ERROR_OBJECT (self, "Failed to parse XML from pssi event");
     goto beach;
   }
   root_element = xmlDocGetRootElement (doc);
@@ -592,7 +592,7 @@ gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self, GstBuf
   }
 
  beach:
-  gst_buffer_unmap(pssh,&info);
+  gst_buffer_unmap(pssi,&info);
   if(doc)
     xmlFreeDoc (doc);
   return(ret);
@@ -603,24 +603,28 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
 {
   gboolean ret = TRUE;
   const gchar *system_id;
-  GstBuffer *pssh = NULL;
-  GstPsshLocation loc;
+  GstBuffer *pssi = NULL;
+  GstPssiOrigin loc;
   GstCencDecrypt *self = GST_CENC_DECRYPT (trans);
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM_STICKY:
       GST_DEBUG_OBJECT (self, "received custom sticky event");
-      if (gst_cenc_event_is_pssh (event)) {
-        gst_cenc_event_parse_pssh (event, &system_id, &pssh, &loc);
+      if (gst_cenc_event_is_pssi (event)) {
+        gst_cenc_event_parse_pssi (event, &system_id, &pssi, &loc);
         GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
 	switch(loc){
-	case GST_PSSH_INIT_SEGMENT:
-          GST_DEBUG_OBJECT (self, "event carries initial pssh data");
-	  gst_cenc_decrypt_parse_pssh_box (self, pssh);
+	case GST_PSSI_ORIGIN_MPD:
+          GST_DEBUG_OBJECT (self, "event carries MPD pssi data");
+	  gst_cenc_decrypt_parse_content_protection_element (self, pssi);
 	  break;
-	case GST_PSSH_FRAGMENT:
+	case GST_PSSI_ORIGIN_INIT_SEGMENT:
+          GST_DEBUG_OBJECT (self, "event carries initial pssh data");
+	  gst_cenc_decrypt_parse_pssh_box (self, pssi);
+	  break;
+	case GST_PSSI_ORIGIN_FRAGMENT:
           GST_DEBUG_OBJECT (self, "event carries non-initial pssh data");
-	  gst_cenc_decrypt_parse_pssh_box (self, pssh);
+	  gst_cenc_decrypt_parse_pssh_box (self, pssi);
 	  break;
 	}
         gst_event_unref (event);

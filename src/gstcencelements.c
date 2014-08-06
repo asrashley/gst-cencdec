@@ -36,5 +36,4 @@ plugin_init (GstPlugin * plugin)
 
 GST_PLUGIN_DEFINE (GST_VERSION_MAJOR, GST_VERSION_MINOR,
     dash_cenc, "ISOBMFF common encryption element",
-    plugin_init, VERSION, "LGPL", PACKAGE_NAME,
-    "http://www.youview.com");
+    plugin_init, VERSION, "LGPL", PACKAGE_NAME, "http://www.youview.com");

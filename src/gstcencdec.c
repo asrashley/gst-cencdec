@@ -605,7 +605,7 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
   gboolean ret = TRUE;
   const gchar *system_id;
   GstBuffer *pssi = NULL;
-  GstPssiOrigin loc;
+  GstCencPssiOrigin loc;
   GstCencDecrypt *self = GST_CENC_DECRYPT (trans);
 
   switch (GST_EVENT_TYPE (event)) {
@@ -615,15 +615,15 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
         gst_cenc_event_parse_pssi (event, &system_id, &pssi, &loc);
         GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
         switch (loc) {
-          case GST_PSSI_ORIGIN_MPD:
+          case GST_CENC_PSSI_ORIGIN_MPD:
             GST_DEBUG_OBJECT (self, "event carries MPD pssi data");
             gst_cenc_decrypt_parse_content_protection_element (self, pssi);
             break;
-          case GST_PSSI_ORIGIN_INIT_SEGMENT:
+          case GST_CENC_PSSI_ORIGIN_MOOV:
             GST_DEBUG_OBJECT (self, "event carries initial pssh data");
             gst_cenc_decrypt_parse_pssh_box (self, pssi);
             break;
-          case GST_PSSI_ORIGIN_FRAGMENT:
+          case GST_CENC_PSSI_ORIGIN_MOOF:
             GST_DEBUG_OBJECT (self, "event carries non-initial pssh data");
             gst_cenc_decrypt_parse_pssh_box (self, pssi);
             break;

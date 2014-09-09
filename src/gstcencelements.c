@@ -22,19 +22,19 @@
 #include "config.h"
 #endif
 
-#include "gstcencdec.h"
+#include "gstcencdec-clearkey.h"
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  if (!gst_element_register (plugin, "cencdec", GST_RANK_PRIMARY,
-          gst_cenc_decrypt_get_type ()))
+  if (!gst_element_register (plugin, "cencdec-clearkey", GST_RANK_PRIMARY,
+          gst_cenc_decrypt_clearkey_get_type ()))
     return FALSE;
 
   return TRUE;
 }
 
 GST_PLUGIN_DEFINE (GST_VERSION_MAJOR, GST_VERSION_MINOR,
-    dash_cenc, "ISOBMFF common encryption element",
+    dash_cenc, "MPEG DASH common encryption element",
     plugin_init, VERSION, "LGPL", PACKAGE_NAME,
     "http://www.youview.com");

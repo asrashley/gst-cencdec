@@ -17,23 +17,23 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef _GST_CENC_DECRYPT_H_
-#define _GST_CENC_DECRYPT_H_
+#ifndef _GST_CENC_DECRYPT_CLEARKEY_H_
+#define _GST_CENC_DECRYPT_CLEARKEY_H_
 
 #include <gst/base/gstbasetransform.h>
 
 G_BEGIN_DECLS
-#define GST_TYPE_CENC_DECRYPT   (gst_cenc_decrypt_get_type())
-#define GST_CENC_DECRYPT(obj)   (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_CENC_DECRYPT,GstCencDecrypt))
-#define GST_CENC_DECRYPT_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_CENC_DECRYPT,GstCencDecryptClass))
-#define GST_IS_CENC_DECRYPT(obj)   (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_CENC_DECRYPT))
-#define GST_IS_CENC_DECRYPT_CLASS(obj)   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_CENC_DECRYPT))
+#define GST_TYPE_CENC_DECRYPT_CLEARKEY   (gst_cenc_decrypt_clearkey_get_type())
+#define GST_CENC_DECRYPT_CLEARKEY(obj)   (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_CENC_DECRYPT_CLEARKEY,GstCencDecryptClearkey))
+#define GST_CENC_DECRYPT_CLEARKEY_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_CENC_DECRYPT_CLEARKEY,GstCencDecryptClass))
+#define GST_IS_CENC_DECRYPT_CLEARKEY(obj)   (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_CENC_DECRYPT_CLEARKEY))
+#define GST_IS_CENC_DECRYPT_CLEARKEY_CLASS(obj)   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_CENC_DECRYPT_CLEARKEY))
 
-typedef struct _GstCencDecrypt GstCencDecrypt;
-typedef struct _GstCencDecryptClass GstCencDecryptClass;
+typedef struct _GstCencDecryptClearkey GstCencDecryptClearkey;
+typedef struct _GstCencDecryptClearkeyClass GstCencDecryptClearkeyClass;
 
 
-GType gst_cenc_decrypt_get_type (void);
+GType gst_cenc_decrypt_clearkey_get_type (void);
 
 G_END_DECLS
 #endif

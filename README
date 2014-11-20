@@ -9,9 +9,11 @@ content on a source pad.
 
 Requirements
 ------------
-gstreamer 1.2
+gstreamer 1.4
 Openssl >=1.0.0h
-DASH CENC patch for qtdemux [https://bugzilla.gnome.org/attachment.cgi?id=256792]
+DASH CENC patches for gst-plugins-base, qtdemux and dashdemux [1]
+
+    [1] https://bugzilla.gnome.org/show_bug.cgi?id=705991
 
 Usage
 -----

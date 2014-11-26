@@ -7,7 +7,7 @@ config.guess
 config.sub
 config.rpath
 configure
-gst-plugins-good.spec
+gst-cencdec.spec
 libtool
 stamp-h
 stamp-h.in

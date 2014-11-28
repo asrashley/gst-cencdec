@@ -13,7 +13,7 @@ AC_INIT(GStreamer cenc element, 0.0.1,,
 AG_GST_INIT
 
 dnl initialize automake
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([-Wno-portability 1.11 no-dist-gzip dist-bzip2 tar-ustar subdir-objects])
 
 dnl define PACKAGE_VERSION_* variables
 AS_VERSION

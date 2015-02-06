@@ -18,7 +18,7 @@ Usage
 -----
 The decryptor does not implement a real DRM system. It performs a sha1
 hash of the KID, converts that to a hex string and then looks for a file
-/tmp/<hash string>.key that contains the binary data of the key.
+/tmp/\<hash string\>.key that contains the binary data of the key.
 
     ./store-key.py 00000000000000000000000000000000 0123456789ABCDEF0123456789ABCDEF
     ./store-key.py 0bbc0bbc0bbc0bbc0bbc0bbc0bbc1bbc ABCDEF0123456789ABCDEF0123456789

@@ -198,6 +198,10 @@ gst_cenc_decrypt_stop (GstBaseTransform * trans)
   return TRUE;
 }
 
+/*
+  Given the pad in this direction and the given caps, what caps are allowed on
+  the other pad in this element ?
+*/
 static GstCaps *
 gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
     GstPadDirection direction, GstCaps * caps, GstCaps * filter)
@@ -217,18 +221,28 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
     GstStructure *out = NULL;
 
     if (direction == GST_PAD_SINK) {
+      gint j, n_fields;
+
       if (!gst_structure_has_field (in, "original-media-type"))
         continue;
 
       out = gst_structure_copy (in);
+      n_fields = gst_structure_n_fields (in);
 
       gst_structure_set_name (out,
           gst_structure_get_string (out, "original-media-type"));
 
-      gst_structure_remove_fields (out,
-          "protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a",
-          "protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4",
-          "protection-system-data", "original-media-type", NULL);
+      /* filter out the DRM related fields from the down-stream caps */
+      for(j=0; j<n_fields; ++j){
+          const gchar *field_name;
+
+          field_name = gst_structure_nth_field_name (in, j);
+
+          if( g_str_has_prefix(field_name, "protection-system-") ||
+              g_str_has_prefix(field_name, "original-media-type") ){
+              gst_structure_remove_field (out, field_name);
+          }
+      }
     } else {                    /* GST_PAD_SRC */
       out = gst_structure_copy (in);
 

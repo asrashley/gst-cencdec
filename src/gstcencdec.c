@@ -207,7 +207,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
     GstPadDirection direction, GstCaps * caps, GstCaps * filter)
 {
   GstCaps *res = NULL;
-  gint i;
+  gint i, j;
 
   g_return_val_if_fail (direction != GST_PAD_UNKNOWN, NULL);
   res = gst_caps_new_empty ();
@@ -219,9 +219,10 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
   for (i = 0; i < gst_caps_get_size (caps); ++i) {
     GstStructure *in = gst_caps_get_structure (caps, i);
     GstStructure *out = NULL;
+    gboolean duplicate=FALSE;
 
     if (direction == GST_PAD_SINK) {
-      gint j, n_fields;
+      gint n_fields;
 
       if (!gst_structure_has_field (in, "original-media-type"))
         continue;
@@ -263,8 +264,15 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
       gst_structure_set_name (out, "application/x-cenc");
     }
-
-    gst_caps_append_structure (res, out);
+    for (j = 0; !duplicate && j < gst_caps_get_size (res); ++j) {
+        GstStructure *s = gst_caps_get_structure (res, j);
+        if(gst_structure_is_equal (s,out)){
+            duplicate=TRUE;
+        }
+    }
+    if(!duplicate){
+        gst_caps_append_structure (res, out);
+    }
   }
 
   if (filter) {

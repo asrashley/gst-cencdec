@@ -69,6 +69,7 @@ static void gst_cenc_decrypt_finalize (GObject * object);
 
 static gboolean gst_cenc_decrypt_start (GstBaseTransform * trans);
 static gboolean gst_cenc_decrypt_stop (GstBaseTransform * trans);
+static gboolean gst_cenc_decrypt_append_if_not_duplicate(GstCaps *dest, GstStructure *new_struct);
 static GstCaps *gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
     GstPadDirection direction, GstCaps * caps, GstCaps * filter);
 
@@ -199,6 +200,31 @@ gst_cenc_decrypt_stop (GstBaseTransform * trans)
 }
 
 /*
+  Append new_structure to dest, but only if it does not already exist in res.
+  This function takes ownership of new_structure.
+*/
+static gboolean
+gst_cenc_decrypt_append_if_not_duplicate(GstCaps *dest, GstStructure *new_struct)
+{
+  gboolean duplicate=FALSE;
+  gint j;
+
+  for (j = 0; !duplicate && j < gst_caps_get_size (dest); ++j) {
+    GstStructure *s = gst_caps_get_structure (dest, j);
+    if(gst_structure_is_equal (s,new_struct)){
+      duplicate=TRUE;
+    }
+  }
+  if(!duplicate){
+    gst_caps_append_structure (dest, new_struct);
+  }
+  else{
+    gst_structure_free (new_struct);
+  }
+  return duplicate;
+}
+
+/*
   Given the pad in this direction and the given caps, what caps are allowed on
   the other pad in this element ?
 */
@@ -219,7 +245,6 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
   for (i = 0; i < gst_caps_get_size (caps); ++i) {
     GstStructure *in = gst_caps_get_structure (caps, i);
     GstStructure *out = NULL;
-    gboolean duplicate=FALSE;
 
     if (direction == GST_PAD_SINK) {
       gint n_fields;
@@ -254,7 +279,8 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
           NULL);
 
       gst_structure_set_name (out, "application/x-cenc");
-      gst_caps_append_structure (res, out);
+      gst_cenc_decrypt_append_if_not_duplicate(res, out);
+
       out = gst_structure_copy (in);
       gst_structure_set (out,
           "protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4",
@@ -264,15 +290,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
       gst_structure_set_name (out, "application/x-cenc");
     }
-    for (j = 0; !duplicate && j < gst_caps_get_size (res); ++j) {
-        GstStructure *s = gst_caps_get_structure (res, j);
-        if(gst_structure_is_equal (s,out)){
-            duplicate=TRUE;
-        }
-    }
-    if(!duplicate){
-        gst_caps_append_structure (res, out);
-    }
+    gst_cenc_decrypt_append_if_not_duplicate(res, out);
   }
 
   if (filter) {

@@ -270,7 +270,28 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
           }
       }
     } else {                    /* GST_PAD_SRC */
-      out = gst_structure_copy (in);
+      gint n_fields;
+      GstStructure *tmp = NULL;
+      /* filter out the video related fields from the up-stream caps,
+       because they are not relevant to the input caps of this element and
+       can cause caps negotiation failures with adaptive bitrate streams */
+      tmp = gst_structure_copy (in);
+      n_fields = gst_structure_n_fields (in);
+      for(j=0; j<n_fields; ++j){
+          const gchar *field_name;
+
+          field_name = gst_structure_nth_field_name (in, j);
+
+          if( g_strcmp0 (field_name, "width")==0 ||
+              g_strcmp0 (field_name, "height")==0 ||
+              g_strcmp0 (field_name, "framerate")==0 ||
+              g_strcmp0 (field_name, "pixel-aspect-ratio")==0 ||
+              g_strcmp0 (field_name, "codec_data")==0 ||
+              g_str_has_prefix(field_name, "protection-system-")){
+              gst_structure_remove_field (tmp, field_name);
+          }
+      }
+      out = gst_structure_copy (tmp);
 
       gst_structure_set (out,
           "protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a",
@@ -289,6 +310,8 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
           NULL);
 
       gst_structure_set_name (out, "application/x-cenc");
+
+      gst_structure_free (tmp);
     }
     gst_cenc_decrypt_append_if_not_duplicate(res, out);
   }

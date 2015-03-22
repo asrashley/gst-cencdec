@@ -36,10 +36,11 @@
 #include <gst/gstelement.h>
 #include <gst/base/gstbasetransform.h>
 #include <gst/base/gstbytereader.h>
-#include <gst/cenc/cenc.h>
+#include <gst/protection/gstprotection.h>
+#include <gst/protection/gstprotectionmeta.h>
 #include <gst/gstaesctr.h>
 
-#include <glib/ghash.h>
+#include <glib.h>
 
 #include <openssl/sha.h>
 #include <libxml/parser.h>
@@ -50,12 +51,19 @@
 GST_DEBUG_CATEGORY_STATIC (gst_cenc_decrypt_debug_category);
 #define GST_CAT_DEFAULT gst_cenc_decrypt_debug_category
 
+#define KEY_LENGTH 16
+
+typedef struct _GstCencKeyPair 
+{
+  GBytes *key_id;
+  gchar *content_id;
+  GBytes *key;
+} GstCencKeyPair;
 
 struct _GstCencDecrypt
 {
   GstBaseTransform parent;
-  /* GBytes *key; */
-  GHashTable *keys;             /* hash table of KID to key */
+  GPtrArray *keys; /* array of GstCencKeyPair objects */
 };
 
 struct _GstCencDecryptClass
@@ -75,9 +83,9 @@ static GstCaps *gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
 static GstFlowReturn gst_cenc_decrypt_transform_ip (GstBaseTransform * trans,
     GstBuffer * buf);
-static GBytes *gst_cenc_decrypt_lookup_key (GstCencDecrypt * self,
-    GBytes * kid);
-static GBytes *gst_cenc_decrypt_get_key (GstCencDecrypt * self, GBytes * kid);
+static const GstCencKeyPair* gst_cenc_decrypt_lookup_key (GstCencDecrypt * self,
+    GstBuffer * kid);
+static GstCencKeyPair* gst_cenc_decrypt_get_key (GstCencDecrypt * self, GstBuffer * kid);
 static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans,
     GstEvent * event);
 
@@ -93,10 +101,10 @@ static GstStaticPadTemplate gst_cenc_decrypt_sink_template =
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS
-    ("application/x-cenc, original-media-type=(string)video/x-h264, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true; "
-        "application/x-cenc, original-media-type=(string)video/x-h264, protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4=(boolean)true; "
-        "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a=(boolean)true; "
-        "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4=(boolean)true")
+    ("application/x-cenc, original-media-type=(string)video/x-h264, protection-system=(string)69f908af-4816-46ea-910c-cd5dcccb0a3a; "
+        "application/x-cenc, original-media-type=(string)video/x-h264, protection-system=(string)5e629af5-38da-4063-8977-97ffbd9902d4; "
+        "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system=(string)69f908af-4816-46ea-910c-cd5dcccb0a3a; "
+        "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system=(string)5e629af5-38da-4063-8977-97ffbd9902d4")
     );
 
 static GstStaticPadTemplate gst_cenc_decrypt_src_template =
@@ -111,6 +119,8 @@ static GstStaticPadTemplate gst_cenc_decrypt_src_template =
 
 #define gst_cenc_decrypt_parent_class parent_class
 G_DEFINE_TYPE (GstCencDecrypt, gst_cenc_decrypt, GST_TYPE_BASE_TRANSFORM);
+
+static void gst_cenc_keypair_destroy (gpointer data);
 
 static void
 gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
@@ -127,7 +137,7 @@ gst_cenc_decrypt_class_init (GstCencDecryptClass * klass)
 
   gst_element_class_set_static_metadata (element_class,
       "Decrypt content encrypted using ISOBMFF Common Encryption",
-      "Decoder/Video/Audio",
+      GST_ELEMENT_FACTORY_KLASS_DECRYPTOR,
       "Decrypts media that has been encrypted using ISOBMFF Common Encryption.",
       "Alex Ashley <alex.ashley@youview.com>");
 
@@ -155,9 +165,7 @@ gst_cenc_decrypt_init (GstCencDecrypt * self)
   gst_base_transform_set_in_place (base, TRUE);
   gst_base_transform_set_passthrough (base, FALSE);
   gst_base_transform_set_gap_aware (GST_BASE_TRANSFORM (self), FALSE);
-
-/*  self->key = NULL;*/
-  self->keys = g_hash_table_new (g_direct_hash, g_direct_equal);
+  self->keys = g_ptr_array_new_with_free_func (gst_cenc_keypair_destroy);
 }
 
 void
@@ -166,7 +174,7 @@ gst_cenc_decrypt_dispose (GObject * object)
   GstCencDecrypt *self = GST_CENC_DECRYPT (object);
 
   if (self->keys) {
-    g_hash_table_unref (self->keys);
+    g_ptr_array_unref (self->keys);
     self->keys = NULL;
   }
 
@@ -264,7 +272,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
           field_name = gst_structure_nth_field_name (in, j);
 
-          if( g_str_has_prefix(field_name, "protection-system-") ||
+          if( g_str_has_prefix(field_name, "protection-system") ||
               g_str_has_prefix(field_name, "original-media-type") ){
               gst_structure_remove_field (out, field_name);
           }
@@ -287,15 +295,14 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
               g_strcmp0 (field_name, "framerate")==0 ||
               g_strcmp0 (field_name, "pixel-aspect-ratio")==0 ||
               g_strcmp0 (field_name, "codec_data")==0 ||
-              g_str_has_prefix(field_name, "protection-system-")){
+              g_str_has_prefix(field_name, "protection-system")){
               gst_structure_remove_field (tmp, field_name);
           }
       }
       out = gst_structure_copy (tmp);
 
       gst_structure_set (out,
-          "protection-system-id-69f908af-4816-46ea-910c-cd5dcccb0a3a",
-          G_TYPE_BOOLEAN, TRUE,
+          "protection-system", G_TYPE_STRING, "69f908af-4816-46ea-910c-cd5dcccb0a3a",
           "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
           NULL);
 
@@ -304,8 +311,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
       out = gst_structure_copy (in);
       gst_structure_set (out,
-          "protection-system-id-5e629af5-38da-4063-8977-97ffbd9902d4",
-          G_TYPE_BOOLEAN, TRUE,
+          "protection-system", G_TYPE_STRING, "5e629af5-38da-4063-8977-97ffbd9902d4",
           "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
           NULL);
 
@@ -360,26 +366,32 @@ gst_cenc_create_content_id (gconstpointer key_id)
   return id_string;
 }
 
-static GBytes *
-gst_cenc_decrypt_get_key (GstCencDecrypt * self, GBytes * key_id)
+static GstCencKeyPair *
+gst_cenc_decrypt_get_key (GstCencDecrypt * self, GstBuffer * key_id)
 {
-#define KEY_LENGTH 16
   guint8 key[KEY_LENGTH] = { 0 };
   guint8 hash[SHA_DIGEST_LENGTH] = { 0 };
   gchar *hash_string;
   gchar *path;
   size_t bytes_read = 0;
   FILE *key_file = NULL;
-  gchar *content_id =
-      gst_cenc_create_content_id (g_bytes_get_data (key_id, NULL));
+  GstMapInfo info;
+  GstCencKeyPair *kp;
 
-  GST_DEBUG_OBJECT (self, "Content ID: %s", content_id);
+  if(!gst_buffer_map(key_id, &info, GST_MAP_READ))
+    return NULL;
+  kp = g_new0 (GstCencKeyPair, 1);
+  kp->key_id = g_bytes_new (info.data, KEY_LENGTH);
+  kp->content_id = gst_cenc_create_content_id (info.data);
+  gst_buffer_unmap(key_id, &info);
+
+  GST_DEBUG_OBJECT (self, "Content ID: %s", kp->content_id);
 
   /* Perform sha1 hash of content id. */
-  SHA1 ((const unsigned char *) content_id, 47, hash);
+  SHA1 ((const unsigned char *) kp->content_id, 47, hash);
   hash_string = gst_cenc_bytes_to_string (hash, SHA_DIGEST_LENGTH);
   GST_DEBUG_OBJECT (self, "Hash: %s", hash_string);
-  g_free (content_id);
+  /*  g_free (content_id);*/
 
   /* Read contents of file with the hash as its name. */
   path = g_strconcat ("/tmp/", hash_string, ".key", NULL);
@@ -401,9 +413,13 @@ gst_cenc_decrypt_get_key (GstCencDecrypt * self, GBytes * key_id)
   }
   g_free (path);
 
-  return g_bytes_new (key, KEY_LENGTH);
+  kp->key = g_bytes_new (key, KEY_LENGTH);
+  g_ptr_array_add (self->keys, kp);
+
+  return kp;
 error:
   g_free (path);
+  gst_cenc_keypair_destroy (kp);
   return NULL;
 }
 
@@ -425,27 +441,31 @@ gst_cenc_create_uuid_string (gconstpointer uuid_bytes)
   return uuid_string;
 }
 
-static GBytes *
-gst_cenc_decrypt_lookup_key (GstCencDecrypt * self, GBytes * kid)
+static const GstCencKeyPair*
+gst_cenc_decrypt_lookup_key (GstCencDecrypt * self, GstBuffer * kid)
 {
-  gchar *id_string;
-  GBytes *key;
+  /*  gchar *id_string;*/
+  GstMapInfo info;
+  const GstCencKeyPair *kp=NULL;
+  int i;
+  gsize sz;
 
 /*  id_string = gst_cenc_create_uuid_string (g_bytes_get_data (kid, NULL));
   GST_DEBUG_OBJECT (self, "Looking up key ID: %s", id_string);
   g_free (id_string); */
 
-  key = g_hash_table_lookup (self->keys, kid);
-  if (!key) {
-    key = gst_cenc_decrypt_get_key (self, kid);
-    if (!key) {
-      return NULL;
+  for (i = 0; kp==NULL && i < self->keys->len; ++i) {
+    const GstCencKeyPair *k;
+    k = g_ptr_array_index (self->keys, i);
+    if(gst_buffer_memcmp (kid, 0, k->key_id, KEY_LENGTH)==0){
+      kp=k;
     }
-    g_hash_table_insert (self->keys, kid, key);
+  }
+  if (!kp) {
+    kp = gst_cenc_decrypt_get_key (self, kid);
   }
 
-  g_bytes_ref (key);
-  return key;
+  return kp;
 }
 
 static GstFlowReturn
@@ -453,18 +473,28 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
 {
   GstCencDecrypt *self = GST_CENC_DECRYPT (base);
   GstFlowReturn ret = GST_FLOW_OK;
-  GstMapInfo map;
-  GBytes *key = NULL;
-  const GstCencMeta *sample_info = NULL;
+  GstMapInfo map, iv_map;
+  const GstCencKeyPair *keypair;
+  const GstProtectionMeta *prot_meta = NULL;
   int pos = 0;
   int sample_index = 0;
+  guint subsample_count;
   AesCtrState *state = NULL;
+  guint iv_size;
+  gboolean encrypted;
+  const GValue *value;
+  GstBuffer *key_id = NULL;
+  GstBuffer *iv_buf = NULL;
+  GBytes *iv_bytes = NULL;
+  GstBuffer *subsamples_buf = NULL;
+  GstMapInfo subsamples_map;
+  GstByteReader *reader=NULL;
 
   GST_TRACE_OBJECT (self, "decrypt in-place");
-  sample_info = gst_buffer_get_cenc_meta (buf);
-  if (!sample_info || !buf) {
-    if (!sample_info) {
-      GST_ERROR_OBJECT (self, "Failed to get sample_info metadata from buffer");
+  prot_meta = (GstProtectionMeta*) gst_buffer_get_protection_meta (buf);
+  if (!prot_meta || !buf) {
+    if (!prot_meta) {
+      GST_ERROR_OBJECT (self, "Failed to get GstProtection metadata from buffer");
     }
     if (!buf) {
       GST_ERROR_OBJECT (self, "Failed to get writable buffer");
@@ -480,47 +510,98 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   }
 
   GST_TRACE_OBJECT (self, "decrypt sample %d", map.size);
-  if (sample_info->properties->iv_size == 0
-      || !sample_info->properties->is_encrypted) {
+  if(!gst_structure_get_uint(prot_meta->info,"iv_size",&iv_size)){
+    GST_ERROR_OBJECT (self, "failed to get iv_size");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  if(!gst_structure_get_boolean(prot_meta->info,"encrypted",&encrypted)){
+    GST_ERROR_OBJECT (self, "failed to get encrypted flag");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  if (iv_size == 0 || !encrypted) {
     /* sample is not encrypted */
     goto beach;
   }
+  GST_DEBUG_OBJECT (base, "protection meta: %" GST_PTR_FORMAT, prot_meta->info);
+  if(!gst_structure_get_uint(prot_meta->info,"subsample_count",&subsample_count)){
+    GST_ERROR_OBJECT (self, "failed to get subsample_count");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  value = gst_structure_get_value (prot_meta->info, "kid");
+  if(!value){
+    GST_ERROR_OBJECT (self, "Failed to get KID for sample");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  key_id = gst_value_get_buffer (value);
 
-  key = gst_cenc_decrypt_lookup_key (self,
-      gst_cenc_sample_properties_get_key_id (sample_info->properties));
+  value = gst_structure_get_value (prot_meta->info, "iv");
+  if(!value){
+    GST_ERROR_OBJECT (self, "Failed to get IV for sample");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  iv_buf = gst_value_get_buffer (value);
+  if(!gst_buffer_map (iv_buf, &iv_map, GST_MAP_READ)){
+    GST_ERROR_OBJECT (self, "Failed to map IV");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  iv_bytes = g_bytes_new (iv_map.data, iv_map.size);
+  gst_buffer_unmap (iv_buf, &iv_map);
+  value = gst_structure_get_value (prot_meta->info, "subsamples");
+  if(!value){
+    GST_ERROR_OBJECT (self, "Failed to get subsamples");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  subsamples_buf = gst_value_get_buffer (value);
 
-  if (!key) {
+  keypair = gst_cenc_decrypt_lookup_key (self,key_id);
+
+  if (!keypair) {
+    gsize sz;
     GST_ERROR_OBJECT (self, "Failed to lookup key");
-    GST_MEMDUMP_OBJECT (self, "Key ID:",
-        g_bytes_get_data (gst_cenc_sample_properties_get_key_id (sample_info->
-                properties), NULL), 16);
+    GST_MEMDUMP_OBJECT (self, "Key ID:", 
+                        g_bytes_get_data (keypair->key_id, &sz),
+                        sz);
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
 
-  state = gst_aes_ctr_decrypt_new (key,
-      gst_cenc_sample_crypto_info_get_iv (sample_info->crypto_info));
+  state = gst_aes_ctr_decrypt_new (keypair->key, iv_bytes);
 
   if (!state) {
     GST_ERROR_OBJECT (self, "Failed to init AES cipher");
     ret = GST_FLOW_NOT_SUPPORTED;
     goto release;
   }
-  g_bytes_unref (key);
+
+  if(!gst_buffer_map (subsamples_buf, &subsamples_map, GST_MAP_READ)){
+    GST_ERROR_OBJECT (self, "Failed to map subsample buffer");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
+  reader = gst_byte_reader_new (subsamples_map.data, subsamples_map.size);
+  if(!reader){
+    GST_ERROR_OBJECT (self, "Failed to allocate subsample reader");
+    ret = GST_FLOW_NOT_SUPPORTED;
+    goto release;
+  }
 
   while (pos < map.size) {
-    GstCencSubsampleInfo *run;
     guint16 n_bytes_clear = 0;
     guint32 n_bytes_encrypted = 0;
 
-    if (sample_index <
-        gst_cenc_sample_crypto_info_get_subsample_count (sample_info->
-            crypto_info)) {
-      run =
-          gst_cenc_sample_crypto_info_get_subsample_info (sample_info->
-          crypto_info, sample_index);
-      n_bytes_clear = run->n_bytes_clear;
-      n_bytes_encrypted = run->n_bytes_encrypted;
+    if (sample_index < subsample_count) {
+      if (!gst_byte_reader_get_uint16_be (reader, &n_bytes_clear)
+            || !gst_byte_reader_get_uint32_be (reader, &n_bytes_encrypted)) {
+          ret = GST_FLOW_NOT_SUPPORTED;
+          goto release;
+      }
       sample_index++;
     } else {
       n_bytes_clear = 0;
@@ -543,8 +624,15 @@ beach:
     gst_aes_ctr_decrypt_unref (state);
   }
 release:
-  if (sample_info) {
-    gst_buffer_remove_meta (buf, (GstMeta *) sample_info);
+  if (reader){
+    gst_byte_reader_free (reader);
+    gst_buffer_unmap (subsamples_buf, &subsamples_map);
+  }
+  if (prot_meta) {
+    gst_buffer_remove_meta (buf, (GstMeta *) prot_meta);
+  }
+  if (iv_bytes) {
+    g_bytes_unref (iv_bytes);
   }
 out:
   return ret;
@@ -666,36 +754,28 @@ static gboolean
 gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
 {
   gboolean ret = TRUE;
-  const gchar *system_id;
+  gchar *system_id;
   GstBuffer *pssi = NULL;
-  GstCencPssiOrigin loc;
+  gchar *loc;
   GstCencDecrypt *self = GST_CENC_DECRYPT (trans);
 
   switch (GST_EVENT_TYPE (event)) {
-    case GST_EVENT_CUSTOM_DOWNSTREAM_STICKY:
-      GST_DEBUG_OBJECT (self, "received custom sticky event");
-      if (gst_cenc_event_is_pssi (event)) {
-        gst_cenc_event_parse_pssi (event, &system_id, &pssi, &loc);
+  case GST_EVENT_PROTECTION:
+      GST_DEBUG_OBJECT (self, "received protection event");
+        gst_event_parse_protection (event, &system_id, &pssi, &loc);
         GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
-        switch (loc) {
-          case GST_CENC_PSSI_ORIGIN_MPD:
+        if(g_ascii_strcasecmp(loc, "dash/mpd")==0){
             GST_DEBUG_OBJECT (self, "event carries MPD pssi data");
             gst_cenc_decrypt_parse_content_protection_element (self, pssi);
-            break;
-          case GST_CENC_PSSI_ORIGIN_MOOV:
-            GST_DEBUG_OBJECT (self, "event carries initial pssh data");
-            gst_cenc_decrypt_parse_pssh_box (self, pssi);
-            break;
-          case GST_CENC_PSSI_ORIGIN_MOOF:
-            GST_DEBUG_OBJECT (self, "event carries non-initial pssh data");
-            gst_cenc_decrypt_parse_pssh_box (self, pssi);
-            break;
         }
+        else if(g_str_has_prefix (loc, "isobmff/")){
+          GST_DEBUG_OBJECT (self, "event carries pssh data from qtdemux");
+          gst_cenc_decrypt_parse_pssh_box (self, pssi);
+        }
+        g_free (system_id);
+        gst_buffer_unref (pssi);
+        g_free (loc);
         gst_event_unref (event);
-      } else {                  /* Chain up */
-        ret =
-            GST_BASE_TRANSFORM_CLASS (parent_class)->sink_event (trans, event);
-      }
       break;
 
     default:
@@ -705,3 +785,13 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
 
   return ret;
 }
+
+static void gst_cenc_keypair_destroy (gpointer data)
+{
+  GstCencKeyPair *key_pair = (GstCencKeyPair*)data;
+  g_bytes_unref (key_pair->key_id);
+  g_free (key_pair->content_id);
+  g_bytes_unref (key_pair->key);
+  g_free (key_pair);
+}
+

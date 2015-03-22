@@ -41,7 +41,7 @@ libgstcenccrypto_la_LDFLAGS = \
 libgstcenccrypto_la_LIBADD = \
   $(top_builddir)/gst-libs/gst/libgstaesctr-@GST_API_VERSION@.la \
   $(GST_PLUGINS_BASE_LIBS) \
-  -lgstcenc-@GST_API_VERSION@ \
+  -lgstprotection-@GST_API_VERSION@ \
   $(GST_BASE_LIBS) \
   $(GST_LIBS) \
   $(LIBXML2_LIBS) \

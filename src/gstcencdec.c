@@ -552,13 +552,20 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   }
   iv_bytes = g_bytes_new (iv_map.data, iv_map.size);
   gst_buffer_unmap (iv_buf, &iv_map);
-  value = gst_structure_get_value (prot_meta->info, "subsamples");
-  if(!value){
-    GST_ERROR_OBJECT (self, "Failed to get subsamples");
-    ret = GST_FLOW_NOT_SUPPORTED;
-    goto release;
+  if(subsample_count){
+    value = gst_structure_get_value (prot_meta->info, "subsamples");
+    if(!value){
+      GST_ERROR_OBJECT (self, "Failed to get subsamples");
+      ret = GST_FLOW_NOT_SUPPORTED;
+      goto release;
+    }
+    subsamples_buf = gst_value_get_buffer (value);
+    if(!gst_buffer_map (subsamples_buf, &subsamples_map, GST_MAP_READ)){
+      GST_ERROR_OBJECT (self, "Failed to map subsample buffer");
+      ret = GST_FLOW_NOT_SUPPORTED;
+      goto release;
+    }
   }
-  subsamples_buf = gst_value_get_buffer (value);
 
   keypair = gst_cenc_decrypt_lookup_key (self,key_id);
 
@@ -580,11 +587,6 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
     goto release;
   }
 
-  if(!gst_buffer_map (subsamples_buf, &subsamples_map, GST_MAP_READ)){
-    GST_ERROR_OBJECT (self, "Failed to map subsample buffer");
-    ret = GST_FLOW_NOT_SUPPORTED;
-    goto release;
-  }
   reader = gst_byte_reader_new (subsamples_map.data, subsamples_map.size);
   if(!reader){
     GST_ERROR_OBJECT (self, "Failed to allocate subsample reader");
@@ -626,6 +628,8 @@ beach:
 release:
   if (reader){
     gst_byte_reader_free (reader);
+  }
+  if(subsamples_buf){
     gst_buffer_unmap (subsamples_buf, &subsamples_map);
   }
   if (prot_meta) {

@@ -36,8 +36,7 @@
 #include <gst/gstelement.h>
 #include <gst/base/gstbasetransform.h>
 #include <gst/base/gstbytereader.h>
-#include <gst/protection/gstprotection.h>
-#include <gst/protection/gstprotectionmeta.h>
+#include <gst/gstprotection.h>
 #include <gst/gstaesctr.h>
 
 #include <glib.h>
@@ -758,14 +757,14 @@ static gboolean
 gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
 {
   gboolean ret = TRUE;
-  gchar *system_id;
+  const gchar *system_id;
   GstBuffer *pssi = NULL;
-  gchar *loc;
+  const gchar *loc;
   GstCencDecrypt *self = GST_CENC_DECRYPT (trans);
 
   switch (GST_EVENT_TYPE (event)) {
-  case GST_EVENT_PROTECTION:
-      GST_DEBUG_OBJECT (self, "received protection event");
+    case GST_EVENT_PROTECTION:
+        GST_DEBUG_OBJECT (self, "received protection event");
         gst_event_parse_protection (event, &system_id, &pssi, &loc);
         GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
         if(g_ascii_strcasecmp(loc, "dash/mpd")==0){
@@ -776,9 +775,6 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
           GST_DEBUG_OBJECT (self, "event carries pssh data from qtdemux");
           gst_cenc_decrypt_parse_pssh_box (self, pssi);
         }
-        g_free (system_id);
-        gst_buffer_unref (pssi);
-        g_free (loc);
         gst_event_unref (event);
       break;
 

@@ -231,6 +231,34 @@ gst_cenc_decrypt_append_if_not_duplicate(GstCaps *dest, GstStructure *new_struct
   return duplicate;
 }
 
+/* filter out the audio and video related fields from the up-stream caps,
+   because they are not relevant to the input caps of this element and
+   can cause caps negotiation failures with adaptive bitrate streams */
+static void
+gst_cenc_remove_codec_fields (GstStructure *gs)
+{
+  gint j, n_fields = gst_structure_n_fields (gs);
+  for(j=n_fields-1; j>=0; --j){
+    const gchar *field_name;
+
+    field_name = gst_structure_nth_field_name (gs, j);
+    GST_TRACE ("Check field \"%s\" for removal", field_name);
+
+    if( g_strcmp0 (field_name, "base-profile")==0 ||
+        g_strcmp0 (field_name, "codec_data")==0 ||
+        g_strcmp0 (field_name, "height")==0 ||
+        g_strcmp0 (field_name, "framerate")==0 ||
+        g_strcmp0 (field_name, "level")==0 ||
+        g_strcmp0 (field_name, "pixel-aspect-ratio")==0 ||
+        g_strcmp0 (field_name, "profile")==0 ||
+        g_strcmp0 (field_name, "rate")==0 ||
+        g_strcmp0 (field_name, "width")==0 ){
+      gst_structure_remove_field (gs, field_name);
+      GST_TRACE ("Removing field %s", field_name);
+    }
+  }
+}
+
 /*
   Given the pad in this direction and the given caps, what caps are allowed on
   the other pad in this element ?
@@ -283,23 +311,9 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
        because they are not relevant to the input caps of this element and
        can cause caps negotiation failures with adaptive bitrate streams */
       tmp = gst_structure_copy (in);
-      n_fields = gst_structure_n_fields (in);
-      for(j=0; j<n_fields; ++j){
-          const gchar *field_name;
+      gst_cenc_remove_codec_fields (tmp);
 
-          field_name = gst_structure_nth_field_name (in, j);
-
-          if( g_strcmp0 (field_name, "width")==0 ||
-              g_strcmp0 (field_name, "height")==0 ||
-              g_strcmp0 (field_name, "framerate")==0 ||
-              g_strcmp0 (field_name, "pixel-aspect-ratio")==0 ||
-              g_strcmp0 (field_name, "codec_data")==0 ||
-              g_str_has_prefix(field_name, "protection-system")){
-              gst_structure_remove_field (tmp, field_name);
-          }
-      }
       out = gst_structure_copy (tmp);
-
       gst_structure_set (out,
           "protection-system", G_TYPE_STRING, "69f908af-4816-46ea-910c-cd5dcccb0a3a",
           "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
@@ -308,7 +322,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
       gst_structure_set_name (out, "application/x-cenc");
       gst_cenc_decrypt_append_if_not_duplicate(res, out);
 
-      out = gst_structure_copy (in);
+      out = gst_structure_copy (tmp);
       gst_structure_set (out,
           "protection-system", G_TYPE_STRING, "5e629af5-38da-4063-8977-97ffbd9902d4",
           "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
@@ -326,7 +340,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 
     GST_DEBUG_OBJECT (base, "Using filter caps %" GST_PTR_FORMAT, filter);
     intersection =
-        gst_caps_intersect_full (filter, res, GST_CAPS_INTERSECT_FIRST);
+      gst_caps_intersect_full (res, filter, GST_CAPS_INTERSECT_FIRST);
     gst_caps_unref (res);
     res = intersection;
   }

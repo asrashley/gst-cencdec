@@ -780,12 +780,12 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
     case GST_EVENT_PROTECTION:
         GST_DEBUG_OBJECT (self, "received protection event");
         gst_event_parse_protection (event, &system_id, &pssi, &loc);
-        GST_DEBUG_OBJECT (self, "system_id: %s", system_id);
-        if(g_ascii_strcasecmp(loc, "dash/mpd")==0){
+        GST_DEBUG_OBJECT (self, "system_id: %s  loc: %s", system_id, loc);
+        if(g_ascii_strcasecmp(loc, "dash/mpd")==0 && g_ascii_strcasecmp(system_id, "5e629af5-38da-4063-8977-97ffbd9902d4")==0){
             GST_DEBUG_OBJECT (self, "event carries MPD pssi data");
             gst_cenc_decrypt_parse_content_protection_element (self, pssi);
         }
-        else if(g_str_has_prefix (loc, "isobmff/")){
+        else if(g_str_has_prefix (loc, "isobmff/") && g_ascii_strcasecmp(system_id, "69f908af-4816-46ea-910c-cd5dcccb0a3a")==0){
           GST_DEBUG_OBJECT (self, "event carries pssh data from qtdemux");
           gst_cenc_decrypt_parse_pssh_box (self, pssi);
         }

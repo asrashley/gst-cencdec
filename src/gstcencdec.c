@@ -457,20 +457,24 @@ gst_cenc_create_uuid_string (gconstpointer uuid_bytes)
 static const GstCencKeyPair*
 gst_cenc_decrypt_lookup_key (GstCencDecrypt * self, GstBuffer * kid)
 {
-  /*  gchar *id_string;*/
   GstMapInfo info;
   const GstCencKeyPair *kp=NULL;
   int i;
   gsize sz;
 
-/*  id_string = gst_cenc_create_uuid_string (g_bytes_get_data (kid, NULL));
-  GST_DEBUG_OBJECT (self, "Looking up key ID: %s", id_string);
-  g_free (id_string); */
-
+  /*
+    GstMapInfo info;
+    gchar *id_string;
+    gst_buffer_map (kid, &info, GST_MAP_READ);
+    id_string = gst_cenc_create_uuid_string (info.data);
+    GST_DEBUG_OBJECT (self, "Looking up key ID: %s", id_string);
+    g_free (id_string);
+    gst_buffer_unmap (kid, &info);
+  */
   for (i = 0; kp==NULL && i < self->keys->len; ++i) {
     const GstCencKeyPair *k;
     k = g_ptr_array_index (self->keys, i);
-    if(gst_buffer_memcmp (kid, 0, k->key_id, KEY_LENGTH)==0){
+    if(gst_buffer_memcmp (kid, 0, g_bytes_get_data (k->key_id, NULL), KEY_LENGTH)==0){
       kp=k;
     }
   }

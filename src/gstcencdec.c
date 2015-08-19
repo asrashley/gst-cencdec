@@ -50,6 +50,7 @@
 GST_DEBUG_CATEGORY_STATIC (gst_cenc_decrypt_debug_category);
 #define GST_CAT_DEFAULT gst_cenc_decrypt_debug_category
 
+#define KID_LENGTH 16
 #define KEY_LENGTH 16
 
 typedef struct _GstCencKeyPair 
@@ -87,6 +88,7 @@ static const GstCencKeyPair* gst_cenc_decrypt_lookup_key (GstCencDecrypt * self,
 static GstCencKeyPair* gst_cenc_decrypt_get_key (GstCencDecrypt * self, GstBuffer * kid);
 static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans,
     GstEvent * event);
+static gchar* gst_cenc_create_uuid_string (gconstpointer uuid_bytes);
 
 enum
 {
@@ -377,6 +379,40 @@ gst_cenc_create_content_id (gconstpointer key_id)
       id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]);
 
   return id_string;
+}
+
+static GstBuffer*
+gst_cenc_decrypt_key_id_from_content_id(GstCencDecrypt * self, const gchar *content_id)
+{
+  GstBuffer *kid;
+  GstMapInfo map;
+  gboolean failed=FALSE;
+  guint i,pos;
+  /*gchar *id_string;*/
+
+  if(!g_str_has_prefix (content_id, "urn:marlin:kid:")){
+    return NULL;
+  }
+  kid = gst_buffer_new_allocate (NULL, KID_LENGTH, NULL);
+  gst_buffer_map (kid, &map, GST_MAP_READWRITE);
+  for(i=0, pos=strlen("urn:marlin:kid:"); i<KID_LENGTH; ++i){
+    guint b;
+    if(!sscanf(&content_id[pos], "%02x", &b)){
+      failed=TRUE;
+      break;
+    }
+    map.data[i] = b;
+    pos += 2;
+  }
+  /*id_string = gst_cenc_create_uuid_string (map.data);
+  GST_DEBUG_OBJECT (self, "content_id=%s  key=%s", content_id, id_string);
+  g_free (id_string);*/
+  gst_buffer_unmap (kid, &map);
+  if(failed){
+    gst_buffer_unref (kid);
+    kid=NULL;
+  }
+  return kid;
 }
 
 static GstCencKeyPair *
@@ -728,9 +764,9 @@ gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self,
    * library used
    */
   LIBXML_TEST_VERSION
-      /* parse "data" into a document (which is a libxml2 tree structure xmlDoc) */
-      doc =
-      xmlReadMemory (info.data, info.size, "ContentProtection.xml", NULL, 0);
+  /* parse "data" into a document (which is a libxml2 tree structure xmlDoc) */
+  doc =
+    xmlReadMemory (info.data, info.size, "ContentProtection.xml", NULL, XML_PARSE_NONET);
   if (!doc) {
     ret = FALSE;
     GST_ERROR_OBJECT (self, "Failed to parse XML from pssi event");
@@ -747,20 +783,29 @@ gst_cenc_decrypt_parse_content_protection_element (GstCencDecrypt * self,
 
   /* Parse KeyIDs */
   for (cur_node = root_element->children; cur_node; cur_node = cur_node->next) {
-    if (cur_node->type == XML_ELEMENT_NODE &&
-        xmlStrcmp (cur_node->name, (xmlChar *) "MarlinContentIds") == 0) {
-      xmlNode *k_node;
-      for (k_node = cur_node->children; k_node; k_node = k_node->next) {
-        if (cur_node->type == XML_ELEMENT_NODE &&
-            xmlStrcmp (cur_node->name, (xmlChar *) "MarlinContentId") == 0) {
-          xmlChar *node_content;
-          node_content = xmlNodeGetContent (k_node);
-          if (node_content) {
-            GST_DEBUG_OBJECT (self, "key_id: %s", node_content);
-            xmlFree (node_content);
-          }
-        }
+    xmlNode *k_node;
+    if (cur_node->type != XML_ELEMENT_NODE ||
+        !g_str_has_suffix ((const gchar *)cur_node->name,"MarlinContentIds"))
+      continue;
+    for (k_node = cur_node->children; k_node; k_node = k_node->next) {
+      xmlChar *node_content;
+      GstBuffer *kid;
+      GstMapInfo map;
+      if (k_node->type != XML_ELEMENT_NODE ||
+          !g_str_has_suffix ((const gchar*)k_node->name, "MarlinContentId"))
+        continue;
+      node_content = xmlNodeGetContent (k_node);
+      if (!node_content)
+        continue;
+      GST_DEBUG_OBJECT (self, "ContentId: %s", node_content);
+      kid = gst_cenc_decrypt_key_id_from_content_id(self, node_content);
+      /* pre-fetch the key */
+      if(kid && !gst_cenc_decrypt_get_key (self, kid)){
+        GST_ERROR_OBJECT (self, "Failed to get key for content ID %s", node_content);
       }
+      if(kid)
+        gst_buffer_unref (kid);
+      xmlFree (node_content);
     }
   }
 

@@ -542,8 +542,8 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
   GstMapInfo map, iv_map;
   const GstCencKeyPair *keypair;
   const GstProtectionMeta *prot_meta = NULL;
-  int pos = 0;
-  int sample_index = 0;
+  guint pos = 0;
+  gint sample_index = 0;
   guint subsample_count;
   AesCtrState *state = NULL;
   guint iv_size;
@@ -575,7 +575,7 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
     goto release;
   }
 
-  GST_TRACE_OBJECT (self, "decrypt sample %d", map.size);
+  GST_TRACE_OBJECT (self, "decrypt sample %d", (gint)map.size);
   if(!gst_structure_get_uint(prot_meta->info,"iv_size",&iv_size)){
     GST_ERROR_OBJECT (self, "failed to get iv_size");
     ret = GST_FLOW_NOT_SUPPORTED;
@@ -675,12 +675,12 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
       n_bytes_clear = 0;
       n_bytes_encrypted = map.size - pos;
     }
-    GST_TRACE_OBJECT (self, "%d bytes clear (todo=%d)", n_bytes_clear,
-        map.size - pos);
+    GST_TRACE_OBJECT (self, "%u bytes clear (todo=%d)", n_bytes_clear,
+                      (gint)map.size - pos);
     pos += n_bytes_clear;
     if (n_bytes_encrypted) {
-      GST_TRACE_OBJECT (self, "%d bytes encrypted (todo=%d)",
-          n_bytes_encrypted, map.size - pos);
+      GST_TRACE_OBJECT (self, "%u bytes encrypted (todo=%d)",
+                        n_bytes_encrypted, (gint)map.size - pos);
       gst_aes_ctr_decrypt_ip (state, map.data + pos, n_bytes_encrypted);
       pos += n_bytes_encrypted;
     }

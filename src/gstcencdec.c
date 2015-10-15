@@ -95,6 +95,9 @@ enum
   PROP_0
 };
 
+#define M_MPD_PROTECTION_ID "5e629af5-38da-4063-8977-97ffbd9902d4"
+#define M_PSSH_PROTECTION_ID "69f908af-4816-46ea-910c-cd5dcccb0a3a"
+
 /* pad templates */
 
 static GstStaticPadTemplate gst_cenc_decrypt_sink_template =
@@ -102,19 +105,24 @@ static GstStaticPadTemplate gst_cenc_decrypt_sink_template =
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS
-    ("application/x-cenc, original-media-type=(string)video/x-h264, protection-system=(string)69f908af-4816-46ea-910c-cd5dcccb0a3a; "
-        "application/x-cenc, original-media-type=(string)video/x-h264, protection-system=(string)5e629af5-38da-4063-8977-97ffbd9902d4; "
-        "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system=(string)69f908af-4816-46ea-910c-cd5dcccb0a3a; "
-        "application/x-cenc, original-media-type=(string)audio/mpeg, protection-system=(string)5e629af5-38da-4063-8977-97ffbd9902d4")
+    (
+     "application/x-cenc, protection-system=(string)" M_MPD_PROTECTION_ID "; "
+     "application/x-cenc, protection-system=(string)" M_PSSH_PROTECTION_ID)
     );
 
 static GstStaticPadTemplate gst_cenc_decrypt_src_template =
     GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("video/x-h264; audio/mpeg")
+    GST_STATIC_CAPS_ANY
     );
 
+
+static const gchar* gst_cenc_decrypt_protection_ids[] = {
+  M_MPD_PROTECTION_ID,
+  M_PSSH_PROTECTION_ID,
+  NULL
+};
 
 /* class initialization */
 
@@ -273,11 +281,17 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
   gint i, j;
 
   g_return_val_if_fail (direction != GST_PAD_UNKNOWN, NULL);
-  res = gst_caps_new_empty ();
 
   GST_DEBUG_OBJECT (base, "direction: %s   caps: %" GST_PTR_FORMAT "   filter:"
       " %" GST_PTR_FORMAT, (direction == GST_PAD_SRC) ? "Src" : "Sink",
       caps, filter);
+
+  if(direction == GST_PAD_SRC && gst_caps_is_any (caps)){
+    res = gst_pad_get_pad_template_caps (GST_BASE_TRANSFORM_SINK_PAD (base));
+    goto filter;
+  }
+  
+  res = gst_caps_new_empty ();
 
   for (i = 0; i < gst_caps_get_size (caps); ++i) {
     GstStructure *in = gst_caps_get_structure (caps, i);
@@ -296,7 +310,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
           gst_structure_get_string (out, "original-media-type"));
 
       /* filter out the DRM related fields from the down-stream caps */
-      for(j=0; j<n_fields; ++j){
+      for(j=n_fields-1; j>=0; --j){
           const gchar *field_name;
 
           field_name = gst_structure_nth_field_name (in, j);
@@ -306,37 +320,34 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
               gst_structure_remove_field (out, field_name);
           }
       }
+      gst_cenc_decrypt_append_if_not_duplicate(res, out);
     } else {                    /* GST_PAD_SRC */
       gint n_fields;
       GstStructure *tmp = NULL;
-      /* filter out the video related fields from the up-stream caps,
-       because they are not relevant to the input caps of this element and
-       can cause caps negotiation failures with adaptive bitrate streams */
+      guint p;
       tmp = gst_structure_copy (in);
       gst_cenc_remove_codec_fields (tmp);
-
-      out = gst_structure_copy (tmp);
-      gst_structure_set (out,
-          "protection-system", G_TYPE_STRING, "69f908af-4816-46ea-910c-cd5dcccb0a3a",
-          "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
-          NULL);
-
-      gst_structure_set_name (out, "application/x-cenc");
-      gst_cenc_decrypt_append_if_not_duplicate(res, out);
-
-      out = gst_structure_copy (tmp);
-      gst_structure_set (out,
-          "protection-system", G_TYPE_STRING, "5e629af5-38da-4063-8977-97ffbd9902d4",
-          "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
-          NULL);
-
-      gst_structure_set_name (out, "application/x-cenc");
-
+      for(p=0; gst_cenc_decrypt_protection_ids[p]; ++p){
+        /* filter out the audio/video related fields from the down-stream 
+           caps, because they are not relevant to the input caps of this 
+           element and they can cause caps negotiation failures with 
+           adaptive bitrate streams */
+        out = gst_structure_copy (tmp);
+        gst_structure_set (out,
+                           "protection-system", G_TYPE_STRING, gst_cenc_decrypt_protection_ids[p],
+                           "original-media-type", G_TYPE_STRING, gst_structure_get_name (in),
+                           NULL);
+        gst_structure_set_name (out, "application/x-cenc");
+        gst_cenc_decrypt_append_if_not_duplicate(res, out);
+      }
       gst_structure_free (tmp);
     }
-    gst_cenc_decrypt_append_if_not_duplicate(res, out);
   }
-
+  if(direction == GST_PAD_SINK && gst_caps_get_size (res)==0){
+    gst_caps_unref (res);
+    res = gst_caps_new_any ();
+  }
+ filter:
   if (filter) {
     GstCaps *intersection;
 
@@ -830,11 +841,11 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
         GST_DEBUG_OBJECT (self, "received protection event");
         gst_event_parse_protection (event, &system_id, &pssi, &loc);
         GST_DEBUG_OBJECT (self, "system_id: %s  loc: %s", system_id, loc);
-        if(g_ascii_strcasecmp(loc, "dash/mpd")==0 && g_ascii_strcasecmp(system_id, "5e629af5-38da-4063-8977-97ffbd9902d4")==0){
+        if(g_ascii_strcasecmp(loc, "dash/mpd")==0 && g_ascii_strcasecmp(system_id, M_MPD_PROTECTION_ID)==0){
             GST_DEBUG_OBJECT (self, "event carries MPD pssi data");
             gst_cenc_decrypt_parse_content_protection_element (self, pssi);
         }
-        else if(g_str_has_prefix (loc, "isobmff/") && g_ascii_strcasecmp(system_id, "69f908af-4816-46ea-910c-cd5dcccb0a3a")==0){
+        else if(g_str_has_prefix (loc, "isobmff/") && g_ascii_strcasecmp(system_id, M_PSSH_PROTECTION_ID)==0){
           GST_DEBUG_OBJECT (self, "event carries pssh data from qtdemux");
           gst_cenc_decrypt_parse_pssh_box (self, pssi);
         }

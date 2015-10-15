@@ -170,6 +170,8 @@ static void
 gst_cenc_decrypt_init (GstCencDecrypt * self)
 {
   GstBaseTransform *base = GST_BASE_TRANSFORM (self);
+  
+  GST_PAD_SET_ACCEPT_TEMPLATE (GST_BASE_TRANSFORM_SINK_PAD (self));
 
   gst_base_transform_set_in_place (base, TRUE);
   gst_base_transform_set_passthrough (base, FALSE);

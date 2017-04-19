@@ -9,10 +9,8 @@ content on a source pad.
 
 Requirements
 ------------
-*    gstreamer 1.4
+*    gstreamer 1.6
 *    Openssl >=1.0.0h
-*    [DASH CENC patches] [1] for gst-plugins-base, qtdemux and dashdemux
-
 
 Usage
 -----
@@ -24,5 +22,3 @@ hash of the KID, converts that to a hex string and then looks for a file
     ./store-key.py 0bbc0bbc0bbc0bbc0bbc0bbc0bbc1bbc ABCDEF0123456789ABCDEF0123456789
     gst-launch-1.0 playbin uri='http://test-media.youview.co.uk/ondemand/bbb/avc3/1/2drm_manifest.mpd'
 
-
-[1]: https://bugzilla.gnome.org/show_bug.cgi?id=705991

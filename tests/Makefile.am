@@ -21,7 +21,7 @@ TESTS_ENVIRONMENT = \
 CLEANFILES = core.* test-registry.*
 
 clean-local: clean-local-check
-distclean-local: distclean-local-check
+# distclean-local: distclean-local-check
 
 check_PROGRAMS = aesctr/decrypt
 

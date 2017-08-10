@@ -98,19 +98,13 @@ if test "x$HAVE_PKGCONFIG" = "xno"; then
   AC_MSG_ERROR(you need to have pkgconfig installed !)
 fi
 
-dnl *** required versions of GStreamer stuff ***
-GST_API_VERSION=1.0
-AC_SUBST(GST_API_VERSION)
-AC_DEFINE_UNQUOTED(GST_API_VERSION, "$GST_API_VERSION",
-  [GStreamer API Version])
-AG_GST_LIBTOOL_PREPARE
-
-GST_REQ=1.2.0
-GSTPB_REQ=1.2.0
+dnl GLib is required
+GLIB_REQ=2.40.0
+AG_GST_GLIB_CHECK([$GLIB_REQ])
 
 PKG_CHECK_MODULES([OPENSSL], [ openssl >= 1.0.0g ], [ HAVE_OPENSSL="yes" ], [ HAVE_OPENSSL="no" ])
 
-PKG_CHECK_MODULES(LIBXML2, libxml-2.0 >= 2.4, [HAVE_LIBXML2="yes"], [HAVE_LIBXML2="no"])
+PKG_CHECK_MODULES(LIBXML2, libxml-2.0 >= 2.8, [HAVE_LIBXML2="yes"], [HAVE_LIBXML2="no"])
 AM_CONDITIONAL(HAVE_LIBXML2, test "x$HAVE_LIBXML2" = "xyes")
 AC_SUBST(LIBXML2_CFLAGS)
 AC_SUBST(LIBXML2_LIBS)

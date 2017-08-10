@@ -46,11 +46,13 @@ gst_aes_ctr_decrypt_new(GBytes *key, GBytes *iv)
     GST_ERROR ("Failed to allocate AesCtrState");
     return NULL;
   }
-  g_assert (g_bytes_get_size (key) == 16);
+  g_return_val_if_fail (g_bytes_get_size (key) == 16, NULL);
   AES_set_encrypt_key ((const unsigned char*) g_bytes_get_data (key, NULL),
       8 * g_bytes_get_size (key), &state->key);
 
   buf = (unsigned char*)g_bytes_get_data(iv, &iv_length);
+  g_return_val_if_fail(buf!=NULL, NULL);
+  g_return_val_if_fail(iv_length==8 || iv_length==16, NULL);
   state->num = 0; 
   memset(state->ecount, 0, 16);      
   if(iv_length==8){

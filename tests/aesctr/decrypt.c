@@ -28,18 +28,17 @@ setup_aes_decrypt()
   const guint8 Key[]={ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
   const guint8 IV[] = { 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff };
  AesCtrState *state;
- GstBuffer *gkey;
+ GBytes *gkey;
  GBytes *giv;
 
- gkey = gst_buffer_new_allocate (NULL,sizeof(Key),NULL);
+ gkey = g_bytes_new_static(Key,sizeof(Key));
  fail_if(gkey==NULL);
- gst_buffer_fill(gkey,0,Key,sizeof(Key));
  giv = g_bytes_new_static(IV,sizeof(IV));
  fail_if(giv==NULL);
  state = gst_aes_ctr_decrypt_new(gkey, giv);
  fail_if(state==NULL);
+ g_bytes_unref(gkey);
  g_bytes_unref(giv);
- gst_buffer_unref(gkey);
 
  return state;
 }

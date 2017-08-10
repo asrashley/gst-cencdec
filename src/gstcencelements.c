@@ -27,13 +27,16 @@
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
-  if (!gst_element_register (plugin, "cencdec", GST_RANK_PRIMARY,
-          gst_cenc_decrypt_get_type ()))
-    return FALSE;
-
-  return TRUE;
+  return gst_element_register (plugin, "cencdec", GST_RANK_PRIMARY,
+      GST_TYPE_CENC_DECRYPT);
 }
 
-GST_PLUGIN_DEFINE (GST_VERSION_MAJOR, GST_VERSION_MINOR,
-    dash_cenc, "ISOBMFF common encryption element",
-    plugin_init, VERSION, "LGPL", PACKAGE_NAME, "http://www.youview.com");
+GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
+    GST_VERSION_MINOR,
+    cencdec,
+    "ISOBMFF common encryption element",
+    plugin_init,
+    VERSION,
+    "LGPL",
+    PACKAGE_NAME,
+    "https://github.com/asrashley/gst-cencdec.git");

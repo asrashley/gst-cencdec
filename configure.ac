@@ -30,6 +30,19 @@ AM_MAINTAINER_MODE
 dnl sets host_* variables
 AC_CANONICAL_HOST
 
+dnl *** required versions of GStreamer stuff ***
+GST_API_VERSION=1.0
+AC_SUBST(GST_API_VERSION)
+AC_DEFINE_UNQUOTED(GST_API_VERSION, "$GST_API_VERSION",
+  [GStreamer API Version])
+
+GST_REQ=1.8.0.0
+
+dnl *** autotools stuff ****
+
+dnl allow for different autotools
+AS_AUTOTOOLS_ALTERNATE
+
 dnl make aclocal work in maintainer mode
 AC_SUBST(ACLOCAL_AMFLAGS, "-I common/m4")
 
@@ -39,15 +52,21 @@ AG_GST_ARG_DEBUG
 AG_GST_ARG_PROFILING
 AG_GST_ARG_VALGRIND
 AG_GST_ARG_GCOV
+AG_GST_ARG_EXAMPLES
+AG_GST_ARG_WITH_PKG_CONFIG_PATH
+AG_GST_ARG_WITH_PACKAGE_NAME
+AG_GST_ARG_WITH_PACKAGE_ORIGIN
+AG_GST_ARG_WITH_PLUGINS
+AG_GST_ARG_ENABLE_EXTERNAL
+AG_GST_ARG_ENABLE_EXPERIMENTAL
+AG_GST_PKG_CONFIG_PATH
 
 dnl *** checks for platform ***
-
-dnl check for fseeko()
-AC_FUNC_FSEEKO
+AG_GST_PLATFORM
 
 dnl * hardware/architecture *
-dnl common/m4/gst-arch.m4
 
+dnl common/m4/gst-arch.m4
 dnl check CPU type
 AG_GST_ARCH
 
@@ -57,9 +76,13 @@ AC_C_BIGENDIAN
 dnl *** checks for programs ***
 
 AC_PROG_CC
+AC_PROG_CC_STDC
 AM_PROG_CC_C_O dnl to compile with per-target flag
 AC_PROG_LIBTOOL
 AM_PROG_AS
+
+dnl check if the compiler supports do while(0) macros
+AG_GST_CHECK_DOWHILE_MACROS
 
 AC_PATH_PROG(VALGRIND_PATH, valgrind, no)
 AM_CONDITIONAL(HAVE_VALGRIND, test ! "x$VALGRIND_PATH" = "xno")
@@ -98,34 +121,38 @@ AG_GST_CHECK_GST($GST_API_VERSION, [$GST_REQ], yes)
 AG_GST_CHECK_GST_BASE($GST_API_VERSION, [$GST_REQ], yes)
 AG_GST_CHECK_GST_CHECK($GST_API_VERSION, [$GST_REQ], no)
 AG_GST_CHECK_GST_CONTROLLER($GST_API_VERSION, [$GST_REQ], yes)
-AM_CONDITIONAL(HAVE_GST_CHECK, test "x$HAVE_GST_CHECK" = "xyes")
+AG_GST_CHECK_GST_NET($GST_API_VERSION, [$GST_REQ], yes)
 
-AG_GST_CHECK_GST_PLUGINS_BASE($GST_API_VERSION, [$GSTPB_REQ], yes)
-AG_GST_CHECK_GST_PLUGINS_GOOD($GST_API_VERSION, [$GSTPB_REQ], yes)
+AG_GST_CHECK_GST_PLUGINS_BASE($GST_API_VERSION, [$GST_REQ], yes)
 
 dnl check for uninstalled plugin directories for unit tests
 AG_GST_CHECK_UNINSTALLED_SETUP([
   AG_GST_CHECK_GST_PLUGINS_GOOD($GST_API_VERSION, [$GST_REQ])
-dnl  AG_GST_CHECK_GST_PLUGINS_BAD($GST_API_VERSION, [$GST_REQ])
-  AG_GST_CHECK_GST_PLUGINS_LIBAV($GST_API_VERSION, [$GST_REQ])
 ])
-
-dnl Now we're ready to ask for gstreamer libs and cflags
-dnl And we can also ask for the right version of gstreamer
-dnl AG_GST_DETECT_VERSION([1.0.0])
-dnl AG_GST_CHECK_GST($GST_MAJORMINOR, [$GST_REQ])
-dnl AG_GST_CHECK_GST_BASE($GST_MAJORMINOR, [$GST_REQ])
-dnl AG_GST_CHECK_GST_PLUGINS_BASE($GST_MAJORMINOR, [$GST_REQ])
-dnl GSTPB_PLUGINS_DIR=${libdir}/gstreamer-${GST_MAJORMINOR}
-
-AM_CONDITIONAL(ZINCBUILD, [test x$ZINC_BUILD_ROOT != x])
 
 dnl make GST_MAJORMINOR available in Makefile.am
 AC_SUBST(GST_MAJORMINOR)
 
-dnl define CPU_TUNE_CFLAGS and CPU_TUNE_CCASFLAGS
-dnl AG_GST_CPU_TUNE
+dnl Check for -Bsymbolic-functions linker flag used to avoid
+dnl intra-library PLT jumps, if available.
+AC_ARG_ENABLE(Bsymbolic,
+              [AS_HELP_STRING([--disable-Bsymbolic],[avoid linking with -Bsymbolic])],,
+              [SAVED_LDFLAGS="${LDFLAGS}" SAVED_LIBS="${LIBS}"
+               AC_MSG_CHECKING([for -Bsymbolic-functions linker flag])
+               LDFLAGS=-Wl,-Bsymbolic-functions
+               LIBS=
+               AC_TRY_LINK([], [return 0],
+                           AC_MSG_RESULT(yes)
+                           enable_Bsymbolic=yes,
+                           AC_MSG_RESULT(no)
+                           enable_Bsymbolic=no)
+               LDFLAGS="${SAVED_LDFLAGS}" LIBS="${SAVED_LIBS}"])
 
+dnl define LIBDIR so we can inform people where we live
+AS_AC_EXPAND(LIBDIR, $libdir)
+AC_DEFINE_UNQUOTED(LIBDIR, "$LIBDIR", [library dir])
+
+dnl set location of plugin directory
 AG_GST_SET_PLUGINDIR
 
 GST_CFLAGS="$GST_CFLAGS $ERROR_CFLAGS"
@@ -134,7 +161,7 @@ dnl set proper LDFLAGS for plugins
 GST_PLUGIN_LDFLAGS='-module -avoid-version -export-symbols-regex [_]*\(gst_\|Gst\|GST_\).*'
 AC_SUBST(GST_PLUGIN_LDFLAGS)
 
-AC_OUTPUT(
+AC_CONFIG_FILES(
 Makefile
 gst-libs/Makefile
 gst-libs/gst/Makefile
@@ -144,6 +171,8 @@ common/m4/Makefile
 tests/Makefile
 gst-cenc.spec
 )
+
+AC_OUTPUT
 
 echo "
 $PACKAGE-$VERSION

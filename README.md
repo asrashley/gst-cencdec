@@ -45,6 +45,7 @@ Example usage:
 
 
 Clearkey example:
+
     ./store-key.py 0872786e-f9e7-465f-a3a2-4e5b0ef8fa45 'wyYRebq2Hu7JedLUBpURzw=='
     ./store-key.py 2d6e9387-60ca-4145-aec2-c40837b4b026 'QtC/8bYPe+SfF9YDSE0MuQ=='
     ./store-key.py 4222bd78-bc45-41bf-b63e-6f814dc391df 'GAMi9v92b9ca5yBwaptN+Q=='

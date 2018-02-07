@@ -453,7 +453,6 @@ gst_cenc_decrypt_get_key (GstCencDecrypt * self, GstBuffer * key_id)
   SHA1 ((const unsigned char *) kp->content_id, 47, hash);
   hash_string = gst_cenc_bytes_to_string (hash, SHA_DIGEST_LENGTH);
   GST_DEBUG_OBJECT (self, "Hash: %s", hash_string);
-  /*  g_free (content_id);*/
 
   /* Read contents of file with the hash as its name. */
   path = g_strconcat ("/tmp/", hash_string, ".key", NULL);
@@ -653,11 +652,13 @@ gst_cenc_decrypt_transform_ip (GstBaseTransform * base, GstBuffer * buf)
     goto release;
   }
 
-  reader = gst_byte_reader_new (subsamples_map.data, subsamples_map.size);
-  if(!reader){
-    GST_ERROR_OBJECT (self, "Failed to allocate subsample reader");
-    ret = GST_FLOW_NOT_SUPPORTED;
-    goto release;
+  if (subsample_count) {
+    reader = gst_byte_reader_new (subsamples_map.data, subsamples_map.size);
+    if(!reader){
+      GST_ERROR_OBJECT (self, "Failed to allocate subsample reader");
+      ret = GST_FLOW_NOT_SUPPORTED;
+      goto release;
+    }
   }
 
   while (pos < map.size) {

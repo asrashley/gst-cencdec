@@ -53,6 +53,13 @@ GST_DEBUG_CATEGORY_STATIC (gst_cenc_decrypt_debug_category);
 #define KID_LENGTH 16
 #define KEY_LENGTH 16
 
+typedef enum
+{
+  GST_DRM_MARLIN,
+  GST_DRM_CLEARKEY,
+  GST_DRM_UNKNOWN = -1
+} GstCencDrmType;
+
 typedef struct _GstCencKeyPair 
 {
   GBytes *key_id;
@@ -64,6 +71,7 @@ struct _GstCencDecrypt
 {
   GstBaseTransform parent;
   GPtrArray *keys; /* array of GstCencKeyPair objects */
+  GstCencDrmType drm_type;
 };
 
 struct _GstCencDecryptClass
@@ -90,13 +98,9 @@ static gboolean gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans,
     GstEvent * event);
 static gchar* gst_cenc_create_uuid_string (gconstpointer uuid_bytes);
 
-enum
-{
-  PROP_0
-};
-
 #define M_MPD_PROTECTION_ID "5e629af5-38da-4063-8977-97ffbd9902d4"
 #define M_PSSH_PROTECTION_ID "69f908af-4816-46ea-910c-cd5dcccb0a3a"
+#define CLEARKEY_PROTECTION_ID "e2719d58-a985-b3c9-781a-b030af78d30e"
 
 /* pad templates */
 
@@ -106,6 +110,7 @@ static GstStaticPadTemplate gst_cenc_decrypt_sink_template =
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS
     (
+     "application/x-cenc, protection-system=(string)" CLEARKEY_PROTECTION_ID "; "
      "application/x-cenc, protection-system=(string)" M_MPD_PROTECTION_ID "; "
      "application/x-cenc, protection-system=(string)" M_PSSH_PROTECTION_ID)
     );
@@ -119,6 +124,7 @@ static GstStaticPadTemplate gst_cenc_decrypt_src_template =
 
 
 static const gchar* gst_cenc_decrypt_protection_ids[] = {
+  CLEARKEY_PROTECTION_ID,
   M_MPD_PROTECTION_ID,
   M_PSSH_PROTECTION_ID,
   NULL
@@ -177,6 +183,7 @@ gst_cenc_decrypt_init (GstCencDecrypt * self)
   gst_base_transform_set_passthrough (base, FALSE);
   gst_base_transform_set_gap_aware (GST_BASE_TRANSFORM (self), FALSE);
   self->keys = g_ptr_array_new_with_free_func (gst_cenc_keypair_destroy);
+  self->drm_type = GST_DRM_UNKNOWN;
 }
 
 void
@@ -365,7 +372,7 @@ gst_cenc_decrypt_transform_caps (GstBaseTransform * base,
 }
 
 static gchar *
-gst_cenc_bytes_to_string (gconstpointer bytes, guint length)
+gst_cenc_bytes_to_hexstring (gconstpointer bytes, guint length)
 {
   const guint8 *data = (const guint8 *) bytes;
   gchar *string = g_malloc0 ((2 * length) + 1);
@@ -379,15 +386,17 @@ gst_cenc_bytes_to_string (gconstpointer bytes, guint length)
 }
 
 static gchar *
-gst_cenc_create_content_id (gconstpointer key_id)
+gst_cenc_create_content_id (GstCencDecrypt * self, gconstpointer key_id)
 {
   const guint8 *id = (const guint8 *) key_id;
   const gsize id_string_length = 48;    /* Length of Content ID string */
   gchar *id_string = g_malloc0 (id_string_length);
+  gchar *prefix = self->drm_type==GST_DRM_MARLIN ? "urn:marlin:kid:" : "";
 
   g_snprintf (id_string, id_string_length,
-      "urn:marlin:kid:%02x%02x%02x%02x%02x%02x%02x%02x"
+      "%s%02x%02x%02x%02x%02x%02x%02x%02x"
       "%02x%02x%02x%02x%02x%02x%02x%02x",
+      prefix,
       id[0], id[1], id[2], id[3], id[4], id[5], id[6], id[7],
       id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]);
 
@@ -443,15 +452,21 @@ gst_cenc_decrypt_get_key (GstCencDecrypt * self, GstBuffer * key_id)
   if(!gst_buffer_map(key_id, &info, GST_MAP_READ))
     return NULL;
   kp = g_new0 (GstCencKeyPair, 1);
-  kp->key_id = g_bytes_new (info.data, KEY_LENGTH);
-  kp->content_id = gst_cenc_create_content_id (info.data);
+  kp->key_id = g_bytes_new (info.data, KID_LENGTH);
+  kp->content_id = gst_cenc_create_content_id (self, info.data);
   gst_buffer_unmap(key_id, &info);
 
   GST_DEBUG_OBJECT (self, "Content ID: %s", kp->content_id);
 
-  /* Perform sha1 hash of content id. */
-  SHA1 ((const unsigned char *) kp->content_id, 47, hash);
-  hash_string = gst_cenc_bytes_to_string (hash, SHA_DIGEST_LENGTH);
+  if (self->drm_type == GST_DRM_MARLIN) {
+    /* Perform sha1 hash of content id. */
+    SHA1 ((const unsigned char *) kp->content_id, 47, hash);
+    hash_string = gst_cenc_bytes_to_hexstring (hash, SHA_DIGEST_LENGTH);
+  }
+  else {
+    /* content_id is a hex representation of the KID */
+    hash_string = g_strdup (kp->content_id);
+  }
   GST_DEBUG_OBJECT (self, "Hash: %s", hash_string);
 
   /* Read contents of file with the hash as its name. */
@@ -846,10 +861,17 @@ gst_cenc_decrypt_sink_event_handler (GstBaseTransform * trans, GstEvent * event)
         GST_DEBUG_OBJECT (self, "system_id: %s  loc: %s", system_id, loc);
         if(g_ascii_strcasecmp(loc, "dash/mpd")==0 && g_ascii_strcasecmp(system_id, M_MPD_PROTECTION_ID)==0){
             GST_DEBUG_OBJECT (self, "event carries MPD pssi data");
+            self->drm_type = GST_DRM_MARLIN;
             gst_cenc_decrypt_parse_content_protection_element (self, pssi);
+        }
+        else if(g_ascii_strcasecmp(loc, "dash/mpd")==0 && g_ascii_strcasecmp(system_id, M_MPD_PROTECTION_ID)==0){
+          GST_DEBUG_OBJECT (self, "event carries MPD clearkey data");
+          self->drm_type = GST_DRM_CLEARKEY;
+          /* TODO: parse clearkey:Laurl element */
         }
         else if(g_str_has_prefix (loc, "isobmff/") && g_ascii_strcasecmp(system_id, M_PSSH_PROTECTION_ID)==0){
           GST_DEBUG_OBJECT (self, "event carries pssh data from qtdemux");
+          self->drm_type = GST_DRM_MARLIN;
           gst_cenc_decrypt_parse_pssh_box (self, pssi);
         }
         gst_event_unref (event);

@@ -17,7 +17,13 @@
  * Boston, MA 02110-1335, USA.
  */
 
+#include <openssl/opensslv.h>
 #include <openssl/aes.h>
+
+#if OPENSSL_VERSION_NUMBER > 0x010100000
+#include <openssl/modes.h>
+#endif
+
 #include <string.h>
 
 #include "gstaesctr.h"
@@ -91,8 +97,13 @@ gst_aes_ctr_decrypt_ip(AesCtrState *state,
 		       unsigned char *data,
 		       int length)
 {
+#if OPENSSL_VERSION_NUMBER > 0x010100000
+  CRYPTO_ctr128_encrypt(data, data, length, &state->key, state->ivec,
+                        state->ecount, &state->num, (block128_f)AES_encrypt);
+#else
   AES_ctr128_encrypt(data, data, length, &state->key, state->ivec, 
-		     state->ecount, &state->num); 
+		     state->ecount, &state->num);
+#endif
 }
 
 G_DEFINE_BOXED_TYPE (AesCtrState, gst_aes_ctr,

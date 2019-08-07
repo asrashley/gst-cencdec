@@ -28,7 +28,7 @@ static gboolean
 plugin_init (GstPlugin * plugin)
 {
   return gst_element_register (plugin, "cencdec", GST_RANK_PRIMARY,
-      GST_TYPE_CENC_DECRYPT);
+      gst_cenc_decrypt_get_type ());
 }
 
 GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
@@ -37,6 +37,4 @@ GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
     "ISOBMFF common encryption element",
     plugin_init,
     VERSION,
-    "LGPL",
-    PACKAGE_NAME,
-    "https://github.com/asrashley/gst-cencdec.git");
+    "LGPL", PACKAGE_NAME, "https://github.com/asrashley/gst-cencdec.git")

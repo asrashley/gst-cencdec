@@ -1,0 +1,5 @@
+option('tests', type : 'feature', value : 'auto', yield : true,
+       description : 'Build and enable unit tests')
+
+option('clearkey', type : 'feature', value : 'auto', yield : true,
+       description : 'Enable W3C clearkey support')

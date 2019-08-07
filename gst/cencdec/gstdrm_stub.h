@@ -1,6 +1,5 @@
-
-/* GStreamer ISO MPEG-DASH common encryption decryption
- * Copyright (C) 2013 YouView TV Ltd. <alex.ashley@youview.com>
+/*
+ * Copyright (c) <2019> Alex Ashley <alex@digital-video.org.uk>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,23 +17,30 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef _GST_AES_CTR_DECRYPT_H_
-#define _GST_AES_CTR_DECRYPT_H_
+#ifndef __GST_CENC_DRM_STUB_H__
+#define __GST_CENC_DRM_STUB_H__
 
-#include <glib.h>
-#include <gst/gst.h>
+#include <gst/cencdrm/gstcencdrm.h>
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#ifndef GST_CENCDRMSTUB_API
+# if defined(BUILDING_GST_CENCDRM) || defined(BUILDING_GST_CENCDEC)
+#  define GST_CENCDRMSTUB_API GST_API_EXPORT         /* from config.h */
+# else
+#  define GST_CENCDRMSTUB_API GST_API_IMPORT
+# endif
+#endif
 
 G_BEGIN_DECLS
 
-typedef struct _AesCtrState AesCtrState;
+GST_CENCDRMSTUB_API
+GstCencDRM* gst_cenc_drm_stub_factory(GstEvent *protection_event);
 
-AesCtrState * gst_aes_ctr_decrypt_new(GBytes *key, GBytes *iv);
-AesCtrState * gst_aes_ctr_decrypt_ref(AesCtrState *state);
-void gst_aes_ctr_decrypt_unref(AesCtrState *state);
-
-void gst_aes_ctr_decrypt_ip(AesCtrState *state, 
-			    unsigned char *data,
-			    int length);
+GST_CENCDRMSTUB_API
+GType gst_cenc_drm_stub_get_type (void);
 
 G_END_DECLS
-#endif
+#endif /* __GST_CENC_DRM_STUB_H__ */

@@ -16,13 +16,13 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Suite 500,
  * Boston, MA 02110-1335, USA.
  */
+
 #include <gst/check/gstcheck.h>
 #include <gst/gst.h>
-#include <gst/gstaesctr.h>
-
+#include <gst/cencdrm/gstaesctr.h>
 
 static AesCtrState *
-setup_aes_decrypt()
+setup_aes_decrypt(void)
 {
 /* NIST SP800-38a section F.5.2; CTR-AES128 Decrypt */
   const guint8 Key[]={ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
@@ -44,14 +44,14 @@ setup_aes_decrypt()
 }
 
 static void decrypt_block(AesCtrState *state,
-			  const guint8 *Ciphertext,
-			  const guint8 *Plaintext,
-			  guint length)
+                          const guint8 *Ciphertext,
+                          const guint8 *Plaintext,
+                          guint length)
 {
  GstBuffer *buf;
  GstMapInfo info;
  gboolean rv;
- int i;
+ gsize i;
 
  buf = gst_buffer_new_allocate (NULL,length,NULL);
  fail_if(buf==NULL);
@@ -59,7 +59,7 @@ static void decrypt_block(AesCtrState *state,
  rv = gst_buffer_map(buf,&info,GST_MAP_READWRITE);
  fail_unless(rv==TRUE);
  gst_aes_ctr_decrypt_ip(state, info.data, info.size);
- for(i=0; i<info.size; ++i){
+ for (i=0; i<info.size; ++i){
    fail_unless_equals_int(info.data[i],Plaintext[i]);
  }
  gst_buffer_unmap(buf,&info);
@@ -80,7 +80,7 @@ GST_START_TEST (test_nist_aes_ctr) {
   const guint8 Ciphertext4[]={ 0x1e, 0x03, 0x1d, 0xda, 0x2f, 0xbe, 0x03, 0xd1, 0x79, 0x21, 0x70, 0xa0, 0xf3, 0x00, 0x9c, 0xee};
   const guint8 Plaintext4[]={ 0xf6, 0x9f, 0x24, 0x45, 0xdf, 0x4f, 0x9b, 0x17, 0xad, 0x2b, 0x41, 0x7b, 0xe6, 0x6c, 0x37, 0x10 };
   AesCtrState *state;
-  
+
   state = setup_aes_decrypt();
   fail_if(state==NULL);
   decrypt_block(state,Ciphertext1, Plaintext1, sizeof(Ciphertext1));
@@ -89,7 +89,7 @@ GST_START_TEST (test_nist_aes_ctr) {
   decrypt_block(state,Ciphertext4, Plaintext4, sizeof(Ciphertext4));
   gst_aes_ctr_decrypt_unref(state);
 }
-GST_END_TEST;
+GST_END_TEST
 
 static Suite *
 aesctr_suite (void)

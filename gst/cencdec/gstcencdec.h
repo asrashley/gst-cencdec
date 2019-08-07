@@ -22,7 +22,20 @@
 
 #include <gst/base/gstbasetransform.h>
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#ifndef GST_CENCDEC_API
+# ifdef BUILDING_GST_CENCDEC
+#  define GST_CENCDEC_API GST_API_EXPORT         /* from config.h */
+# else
+#  define GST_CENCDEC_API GST_API_IMPORT
+# endif
+#endif
+
 G_BEGIN_DECLS
+
 #define GST_TYPE_CENC_DECRYPT   (gst_cenc_decrypt_get_type())
 #define GST_CENC_DECRYPT(obj)   (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_CENC_DECRYPT,GstCencDecrypt))
 #define GST_CENC_DECRYPT_CLASS(klass)   (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_CENC_DECRYPT,GstCencDecryptClass))
@@ -31,7 +44,7 @@ G_BEGIN_DECLS
 typedef struct _GstCencDecrypt GstCencDecrypt;
 typedef struct _GstCencDecryptClass GstCencDecryptClass;
 
-
+GST_CENCDEC_API
 GType gst_cenc_decrypt_get_type (void);
 
 G_END_DECLS

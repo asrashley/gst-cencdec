@@ -1,6 +1,6 @@
 This package provides an example GStreamer element that implements
-DASH Common Encryption (ISO/IEC23001-7 Information technology — MPEG 
-systems technologies — Part 7: Common encryption in ISO base media 
+DASH Common Encryption (ISO/IEC23001-7 Information technology — MPEG
+systems technologies — Part 7: Common encryption in ISO base media
 file format files).
 
 It takes video or audio (of type "application/x-cenc")
@@ -9,7 +9,10 @@ content on a source pad.
 
 Requirements
 ------------
-*    gstreamer 1.11
+*    gstreamer 1.16
+*    json-glib
+*    libcurl >= 7.35.0
+*    libxml >= 2.0
 *    Openssl >=1.0.0h
 
 Usage
@@ -31,7 +34,7 @@ for a file /tmp/\<hex KID string\>.key that contains the binary data of the key.
 There is a store-key.py Python application that will write the key into the
 appropriate location. The usage is:
 
-    ./store-key.py <KID> <KEY>
+    keystore.py <KID> <KEY>
 
 Where:
   <KID> is the hex value of the key ID
@@ -39,22 +42,22 @@ Where:
 
 Example usage:
 
-    ./store-key.py 00000000000000000000000000000000 0123456789ABCDEF0123456789ABCDEF
-    ./store-key.py 0bbc0bbc0bbc0bbc0bbc0bbc0bbc1bbc ABCDEF0123456789ABCDEF0123456789
+    python ./keystore.py 00000000000000000000000000000000 0123456789ABCDEF0123456789ABCDEF
+    python ./keystore.py 0bbc0bbc0bbc0bbc0bbc0bbc0bbc1bbc ABCDEF0123456789ABCDEF0123456789
     gst-launch-1.0 playbin uri='http://test-media.youview.co.uk/ondemand/bbb/avc3/1/2drm_manifest.mpd'
 
 
 Clearkey example:
 
-    ./store-key.py 0872786e-f9e7-465f-a3a2-4e5b0ef8fa45 'wyYRebq2Hu7JedLUBpURzw=='
-    ./store-key.py 2d6e9387-60ca-4145-aec2-c40837b4b026 'QtC/8bYPe+SfF9YDSE0MuQ=='
-    ./store-key.py 4222bd78-bc45-41bf-b63e-6f814dc391df 'GAMi9v92b9ca5yBwaptN+Q=='
-    ./store-key.py 585f233f-3072-46f1-9fa4-6dc22c66a014 'jayKpC3tmPq4YKXkapa8FA=='
-    ./store-key.py 9eb4050de44b4802932e27d75083e266 166634c675823c235a4a9446fad52e4d
-    ./store-key.py c14f0709-f2b9-4427-916b-61b52586506a '7fsXeXJHs8enQ0SEfkhTBQ=='
-    ./store-key.py de02f07f-a098-4ee0-b556-907c0d17fbbc 'GQnGyyKBez4x8aNTD6cNzw=='
+    python ./keystore.py 0872786e-f9e7-465f-a3a2-4e5b0ef8fa45 'wyYRebq2Hu7JedLUBpURzw=='
+    python ./keystore.py 2d6e9387-60ca-4145-aec2-c40837b4b026 'QtC/8bYPe+SfF9YDSE0MuQ=='
+    python ./keystore.py 4222bd78-bc45-41bf-b63e-6f814dc391df 'GAMi9v92b9ca5yBwaptN+Q=='
+    python ./keystore.py 585f233f-3072-46f1-9fa4-6dc22c66a014 'jayKpC3tmPq4YKXkapa8FA=='
+    python ./keystore.py 9eb4050de44b4802932e27d75083e266 166634c675823c235a4a9446fad52e4d
+    python ./keystore.py c14f0709-f2b9-4427-916b-61b52586506a '7fsXeXJHs8enQ0SEfkhTBQ=='
+    python ./keystore.py de02f07f-a098-4ee0-b556-907c0d17fbbc 'GQnGyyKBez4x8aNTD6cNzw=='
+    export GST_PLUGIN_PATH="${GST_PLUGIN_PATH}:${PWD}/gst/cencdec"
     gst-launch-1.0 playbin uri='https://media.axprod.net/TestVectors/v7-MultiDRM-MultiKey-MultiPeriod/Manifest_1080p_ClearKey.mpd'
 
-or
 
     gst-launch-1.0 playbin uri='https://media.axprod.net/TestVectors/v7-MultiDRM-MultiKey/Manifest_AudioOnly_ClearKey.mpd'

@@ -28,51 +28,50 @@
 
 #include "gstaesctr.h"
 
-struct _AesCtrState {
+struct _AesCtrState
+{
   volatile gint refcount;
-  AES_KEY key; 
-  unsigned char ivec[16];   
-  unsigned int num; 
-  unsigned char ecount[16]; 
-}; 
+  AES_KEY key;
+  unsigned char ivec[16];
+  unsigned int num;
+  unsigned char ecount[16];
+};
 
 AesCtrState *
-gst_aes_ctr_decrypt_new(GBytes *key, GBytes *iv)
+gst_aes_ctr_decrypt_new (GBytes * key, GBytes * iv)
 {
   unsigned char *buf;
-  GstMapInfo map;
   gsize iv_length;
   AesCtrState *state;
 
-  g_return_val_if_fail(key!=NULL,NULL);
-  g_return_val_if_fail(iv!=NULL,NULL);
+  g_return_val_if_fail (key != NULL, NULL);
+  g_return_val_if_fail (iv != NULL, NULL);
 
-  state = g_slice_new(AesCtrState);
-  if(!state){
+  state = g_slice_new (AesCtrState);
+  if (!state) {
     GST_ERROR ("Failed to allocate AesCtrState");
     return NULL;
   }
   g_return_val_if_fail (g_bytes_get_size (key) == 16, NULL);
-  AES_set_encrypt_key ((const unsigned char*) g_bytes_get_data (key, NULL),
+  AES_set_encrypt_key ((const unsigned char *) g_bytes_get_data (key, NULL),
       8 * g_bytes_get_size (key), &state->key);
 
-  buf = (unsigned char*)g_bytes_get_data(iv, &iv_length);
-  g_return_val_if_fail(buf!=NULL, NULL);
-  g_return_val_if_fail(iv_length==8 || iv_length==16, NULL);
-  state->num = 0; 
-  memset(state->ecount, 0, 16);      
-  if(iv_length==8){
-    memset(state->ivec + 8, 0, 8);  
-    memcpy(state->ivec, buf, 8); 
-  }
-  else{
-    memcpy(state->ivec, buf, 16); 
+  buf = (unsigned char *) g_bytes_get_data (iv, &iv_length);
+  g_return_val_if_fail (buf != NULL, NULL);
+  g_return_val_if_fail (iv_length == 8 || iv_length == 16, NULL);
+  state->num = 0;
+  memset (state->ecount, 0, 16);
+  if (iv_length == 8) {
+    memset (state->ivec + 8, 0, 8);
+    memcpy (state->ivec, buf, 8);
+  } else {
+    memcpy (state->ivec, buf, 16);
   }
   return state;
-} 
+}
 
-AesCtrState*
-gst_aes_ctr_decrypt_ref(AesCtrState *state)
+AesCtrState *
+gst_aes_ctr_decrypt_ref (AesCtrState * state)
 {
   g_return_val_if_fail (state != NULL, NULL);
 
@@ -82,7 +81,7 @@ gst_aes_ctr_decrypt_ref(AesCtrState *state)
 }
 
 void
-gst_aes_ctr_decrypt_unref(AesCtrState *state)
+gst_aes_ctr_decrypt_unref (AesCtrState * state)
 {
   g_return_if_fail (state != NULL);
 
@@ -93,19 +92,17 @@ gst_aes_ctr_decrypt_unref(AesCtrState *state)
 
 
 void
-gst_aes_ctr_decrypt_ip(AesCtrState *state, 
-		       unsigned char *data,
-		       int length)
+gst_aes_ctr_decrypt_ip (AesCtrState * state, unsigned char *data, int length)
 {
 #if OPENSSL_VERSION_NUMBER > 0x010100000
-  CRYPTO_ctr128_encrypt(data, data, length, &state->key, state->ivec,
-                        state->ecount, &state->num, (block128_f)AES_encrypt);
+  CRYPTO_ctr128_encrypt (data, data, length, &state->key, state->ivec,
+      state->ecount, &state->num, (block128_f) AES_encrypt);
 #else
-  AES_ctr128_encrypt(data, data, length, &state->key, state->ivec, 
-		     state->ecount, &state->num);
+  AES_ctr128_encrypt (data, data, length, &state->key, state->ivec,
+      state->ecount, &state->num);
 #endif
 }
 
 G_DEFINE_BOXED_TYPE (AesCtrState, gst_aes_ctr,
-		     (GBoxedCopyFunc) gst_aes_ctr_decrypt_ref,
-		     (GBoxedFreeFunc) gst_aes_ctr_decrypt_unref);
+    (GBoxedCopyFunc) gst_aes_ctr_decrypt_ref,
+    (GBoxedFreeFunc) gst_aes_ctr_decrypt_unref);

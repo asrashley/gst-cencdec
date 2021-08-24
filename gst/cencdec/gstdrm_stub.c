@@ -110,6 +110,8 @@ static GstCencDrmStatus gst_cenc_drm_stub_fetch_key (GstCencDRMStub * self,
     StubKeyPair * key_pair);
 static GstCencDrmStatus gst_cenc_drm_stub_fetch_key_from_file (GstCencDRMStub *
     self, StubKeyPair * kp);
+static GstCencDrmStatus gst_cenc_drm_stub_fetch_key_from_url (GstCencDRMStub *
+    self, StubKeyPair * kp);
 static GstBuffer
     * gst_cenc_drm_stub_key_id_from_marlin_content_id (GstCencDRMStub * self,
     GstBuffer * content_id);
@@ -398,6 +400,9 @@ gst_cenc_drm_stub_key_id_from_marlin_content_id (GstCencDRMStub * self,
 static GstCencDrmStatus
 gst_cenc_drm_stub_fetch_key (GstCencDRMStub * self, StubKeyPair * kp)
 {
+  if (GST_CENC_DRM (self)->drm_type == GST_DRM_CLEARKEY) {
+    return gst_cenc_drm_stub_fetch_key_from_url (self, kp);
+  }
   return gst_cenc_drm_stub_fetch_key_from_file (self, kp);
 }
 
@@ -490,6 +495,163 @@ gst_cenc_drm_stub_add_base64url_key (GstCencDRMStub * self,
   g_bytes_unref (kid);
   g_bytes_unref (key);
   return GST_DRM_OK;
+}
+
+static GstCencDrmStatus
+gst_cenc_drm_stub_parse_clearkey_json (GstCencDRMStub * self, GBytes * bytes)
+{
+  /*  GstCencDRM *parent = GST_CENC_DRM (self); */
+  GstCencDrmStatus rv = GST_DRM_OK;
+  JsonParser *parser = NULL;
+  JsonReader *reader = NULL;
+  const guint8 *data;
+  gsize data_size;
+  guint i;
+  gint num_keys;
+
+  data = g_bytes_get_data (bytes, &data_size);
+  GST_DEBUG_OBJECT (self, "Response: %s", data);
+
+  parser = json_parser_new ();
+  if (!json_parser_load_from_data (parser, (const gchar *) data, data_size,
+          NULL)) {
+    GST_ERROR_OBJECT (self, "Failed to parse JSON response");
+    rv = GST_DRM_ERROR_SERVER_RESPONSE;
+    goto quit;
+  }
+  reader = json_reader_new (json_parser_get_root (parser));
+  if (!json_reader_read_member (reader, "keys")) {
+    rv = GST_DRM_ERROR_SERVER_RESPONSE;
+    goto quit;
+  }
+  if (!json_reader_is_array (reader)) {
+    GST_ERROR_OBJECT (self, "Expected \"keys\" property to be an array");
+    rv = GST_DRM_ERROR_SERVER_RESPONSE;
+    goto quit;
+  }
+  num_keys = json_reader_count_elements (reader);
+  GST_DEBUG_OBJECT (self, "Response contains %d keys", num_keys);
+  for (i = 0; i < num_keys; i++) {
+    const gchar *b64key, *b64kid;
+
+    json_reader_read_element (reader, i);
+    json_reader_read_member (reader, "k");
+    b64key = json_reader_get_string_value (reader);
+    json_reader_end_element (reader);   /*  "k" */
+    json_reader_read_member (reader, "kid");
+    b64kid = json_reader_get_string_value (reader);
+    json_reader_end_element (reader);   /*  "kid" */
+    json_reader_end_element (reader);   /* array index */
+    gst_cenc_drm_stub_add_base64url_key (self, b64kid, b64key);
+  }
+  json_reader_end_element (reader);     /*  "keys" */
+quit:
+  if (reader)
+    g_object_unref (reader);
+  if (parser)
+    g_object_unref (parser);
+  return rv;
+}
+
+static GstCencDrmStatus
+gst_cenc_drm_stub_fetch_key_from_url (GstCencDRMStub * self, StubKeyPair * kp)
+{
+  GstCencDrmStatus rv = GST_DRM_OK;
+  GString *request;
+  guint i;
+  gboolean first = TRUE;
+  StubHttpPost post;
+  CURL *curl = NULL;
+  CURLcode res;
+  struct curl_slist *headers = NULL;
+
+  memset (&post, 0, sizeof (post));
+  if (self->la_url == NULL) {
+    GST_ERROR_OBJECT (self, "License acquisition URL not set");
+    return GST_DRM_ERROR_NO_LAURL;
+  }
+  request = g_string_new ("{\"kids\":[");
+  for (i = 0; i < self->keys->len; ++i) {
+    StubKeyPair *k;
+    gchar *b64kid;
+
+    k = g_ptr_array_index (self->keys, i);
+    if (k->parent.key != NULL) {
+      continue;
+    }
+    b64kid = gst_cenc_drm_base64url_encode (GST_CENC_DRM (self),
+        k->parent.key_id);
+    if (!first) {
+      request = g_string_append_c (request, ',');
+    }
+    request = g_string_append_c (request, '"');
+    request = g_string_append (request, b64kid);
+    request = g_string_append_c (request, '"');
+    g_free (b64kid);
+    first = FALSE;
+  }
+  if (first) {
+    GST_WARNING_OBJECT (self, "Request with no key IDs!");
+    rv = GST_DRM_ERROR_OTHER;
+    goto quit;
+  }
+  request = g_string_append (request, "],\"type\":\"temporary\"}");
+  post.payload = (guint8 *) g_string_free (request, FALSE);
+  request = NULL;
+  post.payload_size = (guint) strlen ((const gchar *) post.payload);
+  post.payload_rpos = 0;
+  post.response = NULL;
+
+  GST_DEBUG_OBJECT (self, "JSON request:\n %s", post.payload);
+
+  curl = curl_easy_init ();
+  if (!curl) {
+    GST_ERROR_OBJECT (self, "curl_easy_init() failed");
+    rv = GST_DRM_ERROR_OTHER;
+    goto quit;
+  }
+  headers = curl_slist_append (headers, "Content-Type: application/json");
+  curl_easy_setopt (curl, CURLOPT_URL, self->la_url);
+  curl_easy_setopt (curl, CURLOPT_POST, 1L);
+  curl_easy_setopt (curl, CURLOPT_READFUNCTION,
+      gst_cenc_drm_stub_read_callback);
+  curl_easy_setopt (curl, CURLOPT_READDATA, &post);
+  curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION,
+      gst_cenc_drm_stub_write_callback);
+  curl_easy_setopt (curl, CURLOPT_WRITEDATA, &post);
+  /*curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); */
+  curl_easy_setopt (curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt (curl, CURLOPT_POSTFIELDSIZE, (long) post.payload_size);
+
+  GST_DEBUG_OBJECT (self, "Making POST request to: %s", self->la_url);
+  res = curl_easy_perform (curl);
+  if (res != CURLE_OK) {
+    GST_ERROR_OBJECT (self, "curl_easy_perform() failed: %s\n",
+        curl_easy_strerror (res));
+    rv = GST_DRM_ERROR_SERVER_CONNECTION;
+  } else {
+    GBytes *response;
+
+    response = g_byte_array_free_to_bytes (post.response);
+    post.response = NULL;
+    rv = gst_cenc_drm_stub_parse_clearkey_json (self, response);
+    g_bytes_unref (response);
+  }
+quit:
+  if (headers) {
+    curl_slist_free_all (headers);
+  }
+  if (request) {
+    g_string_free (request, TRUE);
+  }
+  if (curl) {
+    curl_easy_cleanup (curl);
+  }
+  g_free (post.payload);
+  if (post.response) {
+    g_byte_array_free (post.response, TRUE);
+  }
+  return rv;
 }
 
 static StubKeyPair *

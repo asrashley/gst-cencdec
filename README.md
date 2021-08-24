@@ -59,5 +59,22 @@ Clearkey example:
     export GST_PLUGIN_PATH="${GST_PLUGIN_PATH}:${PWD}/gst/cencdec"
     gst-launch-1.0 playbin uri='https://media.axprod.net/TestVectors/v7-MultiDRM-MultiKey-MultiPeriod/Manifest_1080p_ClearKey.mpd'
 
+If you apply a patch to dashdemux so that it the contents of the <ContentProtection> element
+are available to cencdec, the GstCencDRMStub class will be able to make requests for the
+license keys using the W3C EME ClearKey request and response protocol.
 
-    gst-launch-1.0 playbin uri='https://media.axprod.net/TestVectors/v7-MultiDRM-MultiKey/Manifest_AudioOnly_ClearKey.mpd'
+The patch for GStreamer 1.16:
+
+    cd gst-plugins-bad
+    git am ../gst-cencdec/patches/1.16-0001-dashdemux-put-whole-ContentProtection-element-in-the.patch
+
+Clear out all the keys stored by keystore.py:
+
+    rm /tmp/*.key
+
+Now when cencdec will be able to use the ClearKey URL inside the <ContentProtection> to
+automatically request the keys.
+
+    export GST_PLUGIN_PATH="${GST_PLUGIN_PATH}:${PWD}/gst/cencdec"
+    gst-launch-1.0 playbin uri='https://media.axprod.net/TestVectors/v7-MultiDRM-MultiKey-MultiPeriod/Manifest_1080p_ClearKey.mpd'
+

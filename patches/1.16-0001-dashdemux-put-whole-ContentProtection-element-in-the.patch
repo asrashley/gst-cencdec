@@ -1,0 +1,195 @@
+From 683731afe4c99d8f8f5f18362143f329265d906d Mon Sep 17 00:00:00 2001
+From: Alex Ashley <bugzilla@ashley-family.net>
+Date: Tue, 24 Aug 2021 09:57:33 +0100
+Subject: [PATCH] dashdemux: put whole ContentProtection element in the event
+
+In the case of MicroSoft PlayReady and ClearKey, when DRM specific
+information is placed into a DASH manifest, it is placed inside a
+<ContentProtection> element. However, this <ContentProtection>
+element also has a "value" attribute. Dashdemux will use the
+contents of the "value" attribute in preference to the contents
+the element.
+
+This commit changes that logic to always put the whole element in
+the content protection event. It places the entire contents of
+the <ContentProtection> element in such a manner that all of the
+XML namespaces are signalled in this top level element.
+
+Having the entire ContentProtection element, satisfying ISO/IEC
+23009-1:2014 5.8.4.1 "This attribute should provide sufficient
+information, possibly in conjunction with the @value and/or
+extension attributes and elements...", ensures the client has
+all the information needed to play.
+---
+ ext/dash/gstdashdemux.c | 14 +++++++++++---
+ ext/dash/gstmpdparser.c | 38 ++++++++++++++++++++++++++++++--------
+ ext/dash/gstmpdparser.h |  1 +
+ 3 files changed, 42 insertions(+), 11 deletions(-)
+
+diff --git a/ext/dash/gstdashdemux.c b/ext/dash/gstdashdemux.c
+index d011f2310..821f95769 100644
+--- a/ext/dash/gstdashdemux.c
++++ b/ext/dash/gstdashdemux.c
+@@ -883,6 +883,7 @@ gst_dash_demux_send_content_protection_event (gpointer data, gpointer userdata)
+   GstBuffer *pssi;
+   glong pssi_len;
+   gchar *schemeIdUri;
++  GstStructure *ev_str;
+ 
+   if (cp->schemeIdUri == NULL)
+     return;
+@@ -891,13 +892,20 @@ gst_dash_demux_send_content_protection_event (gpointer data, gpointer userdata)
+   /* RFC 2141 states: The leading "urn:" sequence is case-insensitive */
+   schemeIdUri = g_ascii_strdown (cp->schemeIdUri, -1);
+   if (g_str_has_prefix (schemeIdUri, "urn:uuid:")) {
+-    pssi_len = strlen (cp->value);
+-    pssi = gst_buffer_new_wrapped (g_memdup (cp->value, pssi_len), pssi_len);
++    if (cp->outerXml) {
++      pssi_len = strlen (cp->outerXml);
++      pssi =
++          gst_buffer_new_wrapped (g_memdup (cp->outerXml, pssi_len), pssi_len);
++    } else {
++      pssi_len = strlen (cp->value);
++      pssi = gst_buffer_new_wrapped (g_memdup (cp->value, pssi_len), pssi_len);
++    }
+     GST_LOG_OBJECT (stream, "Queuing Protection event on source pad");
+     /* RFC 4122 states that the hex part of a UUID is in lower case,
+      * but some streams seem to ignore this and use upper case for the
+      * protection system ID */
+     event = gst_event_new_protection (cp->schemeIdUri + 9, pssi, "dash/mpd");
++
+     gst_adaptive_demux_stream_queue_event ((GstAdaptiveDemuxStream *) stream,
+         event);
+     gst_buffer_unref (pssi);
+@@ -2339,7 +2347,7 @@ gst_dash_demux_seek (GstAdaptiveDemux * demux, GstEvent * seek)
+     return FALSE;
+   }
+ 
+-  trickmode_no_audio = ! !(flags & GST_SEEK_FLAG_TRICKMODE_NO_AUDIO);
++  trickmode_no_audio = !!(flags & GST_SEEK_FLAG_TRICKMODE_NO_AUDIO);
+ 
+   streams = demux->streams;
+   if (current_period != gst_mpd_client_get_period_index (dashdemux->client)) {
+diff --git a/ext/dash/gstmpdparser.c b/ext/dash/gstmpdparser.c
+index 6535cae52..8da95acf3 100644
+--- a/ext/dash/gstmpdparser.c
++++ b/ext/dash/gstmpdparser.c
+@@ -85,8 +85,8 @@ static gboolean gst_mpdparser_get_xml_node_as_string (xmlNode * a_node,
+ 
+ /* XML node parsing */
+ static void gst_mpdparser_parse_baseURL_node (GList ** list, xmlNode * a_node);
+-static void gst_mpdparser_parse_descriptor_type_node (GList ** list,
+-    xmlNode * a_node);
++static GstDescriptorType *gst_mpdparser_parse_descriptor_type_node (GList **
++    list, xmlNode * a_node);
+ static void gst_mpdparser_parse_content_component_node (GList ** list,
+     xmlNode * a_node);
+ static void gst_mpdparser_parse_location_node (GList ** list, xmlNode * a_node);
+@@ -1261,12 +1261,22 @@ gst_mpdparser_get_xml_node_as_string (xmlNode * a_node, gchar ** content)
+   gboolean exists = FALSE;
+   const char *txt_encoding;
+   xmlOutputBufferPtr out_buf;
++  xmlNode *ncopy = NULL;
+ 
+   txt_encoding = (const char *) a_node->doc->encoding;
+   out_buf = xmlAllocOutputBuffer (NULL);
+   g_assert (out_buf != NULL);
+-  xmlNodeDumpOutput (out_buf, a_node->doc, a_node, 0, 0, txt_encoding);
+-  xmlOutputBufferFlush (out_buf);
++
++  /* Need to make a copy of XML elements to include namespaces in node,
++     so that the resulting string can be parsed by an XML parser that is
++     namespace aware.
++     Use extended=1 for recursive copy (properties, namespaces and children) */
++  ncopy = xmlDocCopyNode (a_node, a_node->doc, 1);
++
++  if (ncopy) {
++    xmlNodeDumpOutput (out_buf, ncopy->doc, ncopy, 0, 0, txt_encoding);
++    xmlOutputBufferFlush (out_buf);
++  }
+ #ifdef LIBXML2_NEW_BUFFER
+   if (xmlOutputBufferGetSize (out_buf) > 0) {
+     *content =
+@@ -1286,6 +1296,8 @@ gst_mpdparser_get_xml_node_as_string (xmlNode * a_node, gchar ** content)
+   }
+ #endif // LIBXML2_NEW_BUFFER
+   (void) xmlOutputBufferClose (out_buf);
++  if (ncopy)
++    xmlFreeNode (ncopy);
+ 
+   if (exists) {
+     GST_LOG (" - %s: %s", a_node->name, *content);
+@@ -1340,7 +1352,7 @@ gst_mpdparser_parse_baseURL_node (GList ** list, xmlNode * a_node)
+       &new_base_url->byteRange);
+ }
+ 
+-static void
++static GstDescriptorType *
+ gst_mpdparser_parse_descriptor_type_node (GList ** list, xmlNode * a_node)
+ {
+   GstDescriptorType *new_descriptor;
+@@ -1356,6 +1368,7 @@ gst_mpdparser_parse_descriptor_type_node (GList ** list, xmlNode * a_node)
+     /* if no value attribute, use XML string representation of the node */
+     gst_mpdparser_get_xml_node_as_string (a_node, &new_descriptor->value);
+   }
++  return new_descriptor;
+ }
+ 
+ static void
+@@ -1784,13 +1797,14 @@ static void
+ gst_mpdparser_parse_content_protection_node (GList ** list, xmlNode * a_node)
+ {
+   gchar *value = NULL;
++  GstDescriptorType *new_descriptor;
++
+   if (gst_mpdparser_get_xml_prop_string (a_node, "value", &value)) {
+     if (!g_strcmp0 (value, "MSPR 2.0")) {
+       xmlNode *cur_node;
+       for (cur_node = a_node->children; cur_node; cur_node = cur_node->next) {
+         if (cur_node->type == XML_ELEMENT_NODE) {
+           if (xmlStrcmp (cur_node->name, (xmlChar *) "pro") == 0) {
+-            GstDescriptorType *new_descriptor;
+             new_descriptor = g_slice_new0 (GstDescriptorType);
+             *list = g_list_append (*list, new_descriptor);
+ 
+@@ -1799,15 +1813,23 @@ gst_mpdparser_parse_content_protection_node (GList ** list, xmlNode * a_node)
+ 
+             gst_mpdparser_get_xml_node_content (cur_node,
+                 &new_descriptor->value);
++            gst_mpdparser_get_xml_node_as_string (a_node,
++                &new_descriptor->outerXml);
+             goto beach;
+           }
+         }
+       }
+     } else {
+-      gst_mpdparser_parse_descriptor_type_node (list, a_node);
++      new_descriptor = gst_mpdparser_parse_descriptor_type_node (list, a_node);
++      if (new_descriptor)
++        gst_mpdparser_get_xml_node_as_string (a_node,
++            &new_descriptor->outerXml);
++
+     }
+   } else {
+-    gst_mpdparser_parse_descriptor_type_node (list, a_node);
++    new_descriptor = gst_mpdparser_parse_descriptor_type_node (list, a_node);
++    if (new_descriptor)
++      gst_mpdparser_get_xml_node_as_string (a_node, &new_descriptor->outerXml);
+   }
+ beach:
+   if (value)
+diff --git a/ext/dash/gstmpdparser.h b/ext/dash/gstmpdparser.h
+index 9c78d3f48..4cb28c7fb 100644
+--- a/ext/dash/gstmpdparser.h
++++ b/ext/dash/gstmpdparser.h
+@@ -278,6 +278,7 @@ struct _GstDescriptorType
+ {
+   gchar *schemeIdUri;
+   gchar *value;
++  gchar *outerXml;
+ };
+ 
+ struct _GstContentComponentNode
+-- 
+2.25.1
+

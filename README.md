@@ -68,6 +68,11 @@ The patch for GStreamer 1.16:
     cd gst-plugins-bad
     git am ../gst-cencdec/patches/1.16-0001-dashdemux-put-whole-ContentProtection-element-in-the.patch
 
+The patch for GStreamer 1.18:
+
+    cd gst-plugins-bad
+    git am ../gst-cencdec/patches/1.18.4-0001-dashdemux-copy-ContentProtection-element-including-x.patch
+
 Clear out all the keys stored by keystore.py:
 
     rm /tmp/*.key

@@ -7,36 +7,53 @@ import os
 import re
 import sys
 
-def store_key(filename, key):
-    kfile = open(filename,'wb')
-    kfile.write(key)
-    kfile.close()
-    print('Key stored: {0}'.format(filename))
+class KeyStore(object):
+    def __init__(self):
+        self.keys = {}
 
-if len(sys.argv)<3:
-    print('Usage: %s <KID> <key>'%(sys.argv[0]))
-    sys.exit(1)
+    def add_key(self, kid, key=None):
+        """Adds a key to the store.
+        Both kid and key can be either hex or base64 encoded
+        """
+        kid = kid.strip()
+        if re.match(r'^[0-9a-f-]+$', kid, re.IGNORECASE):
+            bin_kid= binascii.unhexlify(kid.replace('-',''))
+        else:
+            bin_kid = base64.b64decode(kid)
+        if len(bin_kid)!=16:
+            raise ValueError('ERROR: KID is not 16 bytes long')
+        if key is not None:
+            key = key.strip()
+            if re.match(r'^[0-9a-f]+$', key, re.IGNORECASE):
+                key = binascii.unhexlify(key.replace('-',''))
+            else:
+                key = base64.b64decode(key)
+            if len(key)!=16:
+                raise ValueError('ERROR: Key is not 16 bytes long')
+        self.keys[bin_kid] = key
 
-kid_str = sys.argv[1].strip().replace('-','')
-bin_kid= binascii.unhexlify(kid_str)
-if len(bin_kid)!=16:
-    print('ERROR: KID is not 16 bytes long')
-    sys.exit(2)
+    def save(self):
+        for kid, key in self.keys.iteritems():
+            # Marlin naming
+            id_str = ':'.join(['urn','marlin','kid',binascii.hexlify(kid)])
+            filename = os.path.join('/tmp', hashlib.sha1(id_str).hexdigest()) + '.key'
+            self.store_key(filename, key)
 
-key_str = sys.argv[2].strip()
-if re.match(r'^[0-9a-f]+$', key_str, re.IGNORECASE):
-    bin_key = binascii.unhexlify(key_str)
-else:
-    bin_key = base64.b64decode(key_str)
-if len(bin_key)!=16:
-    print('ERROR: Key is not 16 bytes long')
-    sys.exit(2)
+            # Clearkey naming
+            filename = os.path.join('/tmp', binascii.hexlify(kid)) + '.key'
+            self.store_key(filename, key)
 
-# Marlin naming
-id_str = ':'.join(['urn','marlin','kid',binascii.hexlify(bin_kid)])
-filename = os.path.join('/tmp', hashlib.sha1(id_str).hexdigest()) + '.key'
-store_key(filename, bin_key)
+    def store_key(self, filename, key):
+        with open(filename,'wb') as kfile:
+            kfile.write(key)
+        print('Key stored: {0}'.format(filename))
 
-# Clearkey naming
-filename = os.path.join('/tmp', binascii.hexlify(bin_kid)) + '.key'
-store_key(filename, bin_key)
+if __name__ == "__main__":
+    if len(sys.argv)<3:
+        print('Usage: %s <KID> <key> [<KID> <key> .. ]'%(sys.argv[0]))
+        sys.exit(1)
+    ks = KeyStore()
+    for i in range(1, len(sys.argv), 2):
+        ks.add_key(sys.argv[i], sys.argv[i+1])
+    ks.save()
+
